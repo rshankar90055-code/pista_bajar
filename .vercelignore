@@ -1,0 +1,19 @@
+# Ignore local build, runtime, and package directories
+node_modules/
+.next/
+.git/
+.idea/
+.vscode/
+.pnpm-store/
+
+# Ignore local Flutter android app (Vercel only builds the Next.js web app)
+pista_bajaar_flutter/
+flutter/
+.dart_tool/
+android/
+
+# Ignore log files and dev server files
+dev-server.log
+dev-server.err.log
+*.txt
+*.iml

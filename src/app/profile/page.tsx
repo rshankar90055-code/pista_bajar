@@ -4,18 +4,25 @@ import { useEffect, useState } from "react";
 import type { Offer, SavedAddress } from "@/lib/types";
 
 export default function ProfilePage() {
+  const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [totalSavings, setTotalSavings] = useState(0);
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("druits_phone") ?? "";
+    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
+    const savedName = localStorage.getItem("pistabajaar_name") ?? "";
     setPhone(savedPhone);
+    setName(savedName);
 
     if (savedPhone) {
       void fetch(`/api/addresses?phone=${encodeURIComponent(savedPhone)}`)
         .then((response) => response.json())
         .then((data) => setAddresses(data.addresses ?? []));
+      void fetch(`/api/savings?phone=${encodeURIComponent(savedPhone)}`)
+        .then((response) => response.json())
+        .then((data) => setTotalSavings(Number(data.totalSavings ?? 0)));
     }
 
     void fetch("/api/offers")
@@ -24,7 +31,8 @@ export default function ProfilePage() {
   }, []);
 
   function signOut() {
-    localStorage.removeItem("druits_phone");
+    localStorage.removeItem("pistabajaar_phone");
+    localStorage.removeItem("pistabajaar_name");
     window.location.href = "/";
   }
 
@@ -40,8 +48,8 @@ export default function ProfilePage() {
             <path d="M4 22a8 8 0 0 1 16 0" />
           </svg>
         </div>
-        <h1>{phone || "Guest user"}</h1>
-        <p>View profile</p>
+        <h1>{name || "Guest user"}</h1>
+        <p>{phone || "Login to view phone number"}</p>
       </div>
 
       <section className="profile-shortcuts" aria-label="Profile shortcuts">
@@ -65,7 +73,7 @@ export default function ProfilePage() {
           </span>
           Offers
         </a>
-        <a href="#help">
+        <a href="/help">
           <span>
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" />
@@ -78,8 +86,9 @@ export default function ProfilePage() {
       </section>
 
       <section className="profile-meter">
-        Your active offers
-        <strong>{offers.length}</strong>
+        You Saved
+        <strong>₹{totalSavings}</strong>
+        <small>till now</small>
       </section>
 
       <section className="profile-section">
@@ -98,19 +107,17 @@ export default function ProfilePage() {
         </a>
       </section>
 
-      <h2 id="help" className="profile-section-title">Help & Support</h2>
+      <h2 id="help" className="profile-section-title">Help</h2>
       <section className="profile-section">
-        <a className="profile-row" href="/orders">
+        <a className="profile-row" href="/help">
           <span className="row-icon">
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 19.5V5a2 2 0 0 1 2-2h11" />
-              <path d="M8 3v18" />
-              <path d="M20 7v14H8" />
+              <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z" />
             </svg>
           </span>
           <span>
-            <strong>Guide</strong>
-            <small>Orders, coupons, delivery OTP, and cancellations</small>
+            <strong>Contact</strong>
+            <small>+91 95388069498</small>
           </span>
           <em>›</em>
         </a>
@@ -127,8 +134,7 @@ export default function ProfilePage() {
             </svg>
           </span>
           <span>
-            <strong>About Druits</strong>
-            <small>Dry-fruits-only ordering with local mock checkout</small>
+            <strong>About Pista Bajaar</strong>
           </span>
           <em>›</em>
         </div>
@@ -143,7 +149,6 @@ export default function ProfilePage() {
           </span>
           <span>
             <strong>Legal Information</strong>
-            <small>Local prototype terms can be connected later</small>
           </span>
           <em>›</em>
         </div>
@@ -155,7 +160,6 @@ export default function ProfilePage() {
           </span>
           <span>
             <strong>Privacy Policy</strong>
-            <small>Phone and address data stays in local JSON storage</small>
           </span>
           <em>›</em>
         </div>
@@ -169,7 +173,6 @@ export default function ProfilePage() {
         Sign out
       </button>
 
-      <p className="profile-version">Druits prototype v0.1</p>
     </main>
   );
 }

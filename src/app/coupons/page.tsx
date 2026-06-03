@@ -24,40 +24,57 @@ export default function CouponsPage() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [claimedOfferId, setClaimedOfferId] = useState("");
+  const [phone, setPhone] = useState("");
+  const [usedOfferIds, setUsedOfferIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    setClaimedOfferId(localStorage.getItem("druits_claimed_offer") ?? "");
+    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
+    setPhone(savedPhone);
+    setClaimedOfferId(localStorage.getItem("pistabajaar_claimed_offer") ?? "");
     void Promise.all([
       fetch("/api/offers").then((response) => response.json()),
-      fetch("/api/products").then((response) => response.json())
-    ]).then(([offerData, productData]) => {
+      fetch("/api/products").then((response) => response.json()),
+      savedPhone
+        ? fetch(`/api/coupon-usage?phone=${encodeURIComponent(savedPhone)}`).then((response) => response.json())
+        : Promise.resolve({ usedOfferIds: [] })
+    ]).then(([offerData, productData, usageData]) => {
       setOffers(offerData.offers ?? []);
       setProducts(productData.products ?? []);
+      setUsedOfferIds(new Set(usageData.usedOfferIds ?? []));
     });
   }, []);
 
   function applyCoupon(offer: Offer) {
-    localStorage.setItem("druits_claimed_offer", offer.id);
+    if (!phone) {
+      setToast("Login before applying coupons.");
+      return;
+    }
+    if (usedOfferIds.has(offer.id)) {
+      setToast("You have already used this coupon.");
+      return;
+    }
+
+    localStorage.setItem("pistabajaar_claimed_offer", offer.id);
     setClaimedOfferId(offer.id);
 
     const matchedProducts = getOfferProducts(offer, products);
     if (matchedProducts.length) {
-      const currentCart = JSON.parse(localStorage.getItem("druits_cart") ?? "{}") as Cart;
+      const currentCart = JSON.parse(localStorage.getItem("pistabajaar_cart") ?? "{}") as Cart;
       const next = { ...currentCart };
       matchedProducts.forEach(({ product, quantityKg }) => {
         const maxStock = product.stockKg ?? Number.POSITIVE_INFINITY;
         const currentQuantity = next[product.id] ?? 0;
         next[product.id] = Math.min(maxStock, Math.max(currentQuantity, quantityKg));
       });
-      localStorage.setItem("druits_cart", JSON.stringify(next));
+      localStorage.setItem("pistabajaar_cart", JSON.stringify(next));
     }
 
     window.location.href = "/cart";
   }
 
   function removeCoupon() {
-    localStorage.removeItem("druits_claimed_offer");
+    localStorage.removeItem("pistabajaar_claimed_offer");
     setClaimedOfferId("");
     setToast("Coupon removed.");
   }
@@ -66,8 +83,10 @@ export default function CouponsPage() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/cart">
-          <span className="brand-mark">D</span>
-          <span>Coupons</span>
+          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
+            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </span>
+          <span>Pista Bajaar Coupons</span>
         </a>
         <a className="button ghost" href="/cart">
           Cart
@@ -89,10 +108,16 @@ export default function CouponsPage() {
 
         <div className="coupon-list">
           {offers.map((offer) => (
-            <button className={`coupon-card ${claimedOfferId === offer.id ? "selected" : ""}`} key={offer.id} type="button" onClick={() => applyCoupon(offer)}>
+            <button
+              className={`coupon-card ${claimedOfferId === offer.id ? "selected" : ""} ${usedOfferIds.has(offer.id) ? "disabled" : ""}`}
+              disabled={usedOfferIds.has(offer.id)}
+              key={offer.id}
+              type="button"
+              onClick={() => applyCoupon(offer)}
+            >
               <span className="coupon-topline">
                 <strong>{offer.title}</strong>
-                <em>{offer.discountCode ?? "SPECIAL"}</em>
+                <em>{usedOfferIds.has(offer.id) ? "USED" : offer.discountCode ?? "SPECIAL"}</em>
               </span>
               <span className="coupon-desc">{offer.description}</span>
               {offer.extraItemText ? <span className="coupon-use">Benefit: {offer.extraItemText}</span> : <span className="coupon-use">Benefit: 10% off this order</span>}

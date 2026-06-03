@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { addNotification, readStore, writeStore } from "@/lib/store";
+import { isAdminPasswordValid } from "@/lib/admin";
+import { notifyUsers } from "@/lib/notification-service";
+import { readStore, writeStore } from "@/lib/store";
 import type { Offer } from "@/lib/types";
 
 export async function POST(request: Request) {
   const body = (await request.json()) as Partial<Offer> & { adminPassword?: string };
 
-  if (body.adminPassword !== "admin123") {
+  if (!isAdminPasswordValid(body.adminPassword)) {
     return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
   }
 
@@ -28,11 +30,11 @@ export async function POST(request: Request) {
 
   store.offers.unshift(offer);
   await writeStore(store);
-  await addNotification({
-    audience: "user",
+  await notifyUsers({
     title: `New Offer: ${offer.title}`,
     message: offer.description,
-    type: "offer"
+    type: "offer",
+    deepLink: "/coupons"
   });
 
   return NextResponse.json({ offer });

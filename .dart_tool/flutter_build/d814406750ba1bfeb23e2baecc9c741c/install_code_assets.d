@@ -1,0 +1,1 @@
+ D:\\pista_bajaar\\.dart_tool\\flutter_build\\d814406750ba1bfeb23e2baecc9c741c\\native_assets.json: 

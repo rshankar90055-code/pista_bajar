@@ -31,7 +31,6 @@ export async function POST(request: Request) {
     addressLine: body.addressLine,
     city: body.city,
     pinCode: body.pinCode,
-    landmark: body.landmark ?? "",
     isDefault: Boolean(body.isDefault)
   });
 
@@ -52,7 +51,6 @@ export async function PATCH(request: Request) {
     addressLine: body.addressLine,
     city: body.city,
     pinCode: body.pinCode,
-    landmark: body.landmark,
     isDefault: body.isDefault
   });
 
@@ -71,7 +69,7 @@ export async function DELETE(request: Request) {
 
   const deleted = await deleteSavedAddress(addressId, phone);
   if (!deleted) {
-    return NextResponse.json({ error: "Address not found or default address cannot be deleted." }, { status: 400 });
+    return NextResponse.json({ error: "Address not found." }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

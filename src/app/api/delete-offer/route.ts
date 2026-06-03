@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAdminPasswordValid } from "@/lib/admin";
 import { deleteOffer } from "@/lib/store";
 
 export async function POST(request: Request) {
@@ -7,7 +8,7 @@ export async function POST(request: Request) {
     adminPassword?: string;
   };
 
-  if (adminPassword !== "admin123") {
+  if (!isAdminPasswordValid(adminPassword)) {
     return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
   }
 

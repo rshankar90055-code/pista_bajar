@@ -9,7 +9,6 @@ const emptyForm = {
   addressLine: "",
   city: "",
   pinCode: "",
-  landmark: "",
   isDefault: false
 };
 
@@ -19,10 +18,10 @@ export default function AddressesPage() {
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [toast, setToast] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [busyAction, setBusyAction] = useState("");
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("druits_phone") ?? "";
+    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
     setPhone(savedPhone);
     setForm((current) => ({ ...current, contactPhone: savedPhone }));
     if (savedPhone) void loadAddresses(savedPhone);
@@ -47,7 +46,6 @@ export default function AddressesPage() {
       addressLine: address.addressLine,
       city: address.city,
       pinCode: address.pinCode,
-      landmark: address.landmark,
       isDefault: address.isDefault
     });
   }
@@ -55,81 +53,91 @@ export default function AddressesPage() {
   function resetForm() {
     setEditingId("");
     setForm({ ...emptyForm, contactPhone: phone });
-    setSelectedLocation(null);
-  }
-
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setToast("Location is not supported by this browser.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Number(position.coords.latitude.toFixed(6));
-        const lng = Number(position.coords.longitude.toFixed(6));
-        setSelectedLocation({ lat, lng });
-        setForm((current) => ({
-          ...current,
-          landmark: `Map pin: ${lat}, ${lng}`
-        }));
-        setToast("Live location added to landmark.");
-      },
-      () => setToast("Could not access your live location.")
-    );
   }
 
   async function saveAddress() {
-    const payload = { ...form, phone, addressId: editingId };
-    const response = await fetch("/api/addresses", {
-      method: editingId ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not save address.");
+    if (!phone || busyAction) return;
+    if (!form.name.trim() || !form.contactPhone.trim() || !form.addressLine.trim() || !form.city.trim() || !form.pinCode.trim()) {
+      setToast("Please fill name, phone, full address, city, and pin code.");
       return;
     }
-    setToast(editingId ? "Address updated." : "Address added.");
-    resetForm();
-    await loadAddresses();
+
+    setBusyAction("save");
+    try {
+      const payload = { ...form, phone, addressId: editingId };
+      const response = await fetch("/api/addresses", {
+        method: editingId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setToast(data.error ?? "Could not save address.");
+        return;
+      }
+      setToast(editingId ? "Address updated." : "Address added.");
+      resetForm();
+      await loadAddresses();
+    } catch {
+      setToast("Could not save address. Please try again.");
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function setDefault(address: SavedAddress) {
-    const response = await fetch("/api/addresses", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...address, phone, addressId: address.id, isDefault: true })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not set default.");
-      return;
+    if (busyAction) return;
+    setBusyAction(`default-${address.id}`);
+    try {
+      const response = await fetch("/api/addresses", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...address, phone, addressId: address.id, isDefault: true })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setToast(data.error ?? "Could not set default.");
+        return;
+      }
+      setToast("Default address updated.");
+      await loadAddresses();
+    } catch {
+      setToast("Could not set default. Please try again.");
+    } finally {
+      setBusyAction("");
     }
-    setToast("Default address updated.");
-    await loadAddresses();
   }
 
   async function deleteAddress(addressId: string) {
-    const response = await fetch(`/api/addresses?phone=${encodeURIComponent(phone)}&addressId=${encodeURIComponent(addressId)}`, {
-      method: "DELETE"
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not delete address.");
-      return;
+    if (busyAction) return;
+    setBusyAction(`delete-${addressId}`);
+    try {
+      const response = await fetch(`/api/addresses?phone=${encodeURIComponent(phone)}&addressId=${encodeURIComponent(addressId)}`, {
+        method: "DELETE"
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setToast(data.error ?? "Could not delete address.");
+        return;
+      }
+      setAddresses((current) => current.filter((address) => address.id !== addressId));
+      setToast("Address deleted.");
+      await loadAddresses();
+    } catch {
+      setToast("Could not delete address. Please try again.");
+    } finally {
+      setBusyAction("");
     }
-    setToast("Address deleted.");
-    await loadAddresses();
   }
 
   return (
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/">
-          <span className="brand-mark">D</span>
-          <span>Druits</span>
+          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
+            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </span>
+          <span>Pista Bajaar</span>
         </a>
         <a className="button ghost" href="/">
           Shop
@@ -155,16 +163,17 @@ export default function AddressesPage() {
                 <p>
                   {address.addressLine}, {address.city} {address.pinCode}
                 </p>
-                {address.landmark ? <p className="muted">Landmark: {address.landmark}</p> : null}
-                <div className="row-actions">
+                <div className="address-actions">
                   <button className="button secondary" type="button" onClick={() => editAddress(address)}>
                     Edit
                   </button>
-                  <button className="button ghost" type="button" onClick={() => setDefault(address)} disabled={address.isDefault}>
-                    Default
-                  </button>
-                  <button className="button danger" type="button" onClick={() => deleteAddress(address.id)} disabled={address.isDefault}>
-                    Delete
+                  {!address.isDefault ? (
+                    <button className="button ghost" type="button" onClick={() => setDefault(address)} disabled={busyAction === `default-${address.id}`}>
+                      {busyAction === `default-${address.id}` ? "Setting..." : "Set default"}
+                    </button>
+                  ) : null}
+                  <button className="button danger" type="button" onClick={() => deleteAddress(address.id)} disabled={busyAction === `delete-${address.id}`}>
+                    {busyAction === `delete-${address.id}` ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </article>
@@ -195,7 +204,14 @@ export default function AddressesPage() {
             </div>
             <div className="field">
               <label htmlFor="addressLine">Address line</label>
-              <textarea id="addressLine" rows={3} value={form.addressLine} onChange={(event) => setForm({ ...form, addressLine: event.target.value })} />
+              <textarea
+                id="addressLine"
+                rows={4}
+                placeholder="Paste your accurate full address or Google Maps copied location here."
+                value={form.addressLine}
+                onChange={(event) => setForm({ ...form, addressLine: event.target.value })}
+              />
+              <small className="field-help">Please paste the complete Google Maps address/location here for accurate delivery.</small>
             </div>
             <div className="field">
               <label htmlFor="city">City</label>
@@ -205,29 +221,12 @@ export default function AddressesPage() {
               <label htmlFor="pinCode">Pin code</label>
               <input id="pinCode" value={form.pinCode} onChange={(event) => setForm({ ...form, pinCode: event.target.value })} />
             </div>
-            <div className="field">
-              <label htmlFor="landmark">Landmark</label>
-              <div className="location-field">
-                <input id="landmark" value={form.landmark} onChange={(event) => setForm({ ...form, landmark: event.target.value })} />
-                <button className="icon-button" type="button" aria-label="Use live location for landmark" onClick={useCurrentLocation}>
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M12 21s7-5.3 7-12a7 7 0 0 0-14 0c0 6.7 7 12 7 12Z" />
-                    <circle cx="12" cy="9" r="2.5" />
-                  </svg>
-                </button>
-              </div>
-              {selectedLocation ? (
-                <p className="muted">
-                  Selected live location: {selectedLocation.lat}, {selectedLocation.lng}
-                </p>
-              ) : null}
-            </div>
             <label className="check-row">
               <input type="checkbox" checked={form.isDefault} onChange={(event) => setForm({ ...form, isDefault: event.target.checked })} />
               <span>Use as default delivery address</span>
             </label>
-            <button className="button" type="button" onClick={saveAddress} disabled={!phone}>
-              {editingId ? "Save address" : "Add address"}
+            <button className="button" type="button" onClick={saveAddress} disabled={!phone || busyAction === "save"}>
+              {busyAction === "save" ? "Saving..." : editingId ? "Save address" : "Add address"}
             </button>
           </div>
         </div>
@@ -241,6 +240,7 @@ export default function AddressesPage() {
           </button>
         </div>
       ) : null}
+
     </main>
   );
 }

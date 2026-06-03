@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isAdminPasswordValid } from "@/lib/admin";
+import { notifyUsers } from "@/lib/notification-service";
 import { addProduct } from "@/lib/store";
 import type { Product, ProductCategory } from "@/lib/types";
 
@@ -7,7 +9,7 @@ const categories: ProductCategory[] = ["almonds", "cashews", "pistachios", "date
 export async function POST(request: Request) {
   const body = (await request.json()) as Partial<Product> & { adminPassword?: string };
 
-  if (body.adminPassword !== "admin123") {
+  if (!isAdminPasswordValid(body.adminPassword)) {
     return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
   }
 
@@ -38,5 +40,11 @@ export async function POST(request: Request) {
   };
 
   await addProduct(product);
+  await notifyUsers({
+    title: `New arrival: ${product.name}`,
+    message: `${product.name} is now available on Pista Bajaar.`,
+    type: "product",
+    deepLink: "/"
+  });
   return NextResponse.json({ product });
 }

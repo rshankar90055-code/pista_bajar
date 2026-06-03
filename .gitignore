@@ -29,6 +29,12 @@ dev-server.err.log
 .env.test.local
 .env.production.local
 
+# Database and password files
+*passw.txt
+*password.txt
+*password
+*passw
+
 # Local mock data generated while running the app
 data/store.json
 
@@ -43,3 +49,5 @@ data/store.json
 Thumbs.db
 .idea/
 .vscode/
+
+.vercel

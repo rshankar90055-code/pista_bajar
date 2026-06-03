@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Address, Offer, PaymentMethod, Product, SavedAddress } from "@/lib/types";
+import type { Address, Offer, PaymentMethod, Product, SavedAddress, UpiApp } from "@/lib/types";
 
 type Cart = Record<string, number>;
 type CartPacks = Record<string, number>;
@@ -10,11 +10,39 @@ type CheckoutState = "idle" | "payment" | "success";
 const emptyAddress: Address = {
   addressLine: "",
   city: "",
-  pinCode: "",
-  landmark: ""
+  pinCode: ""
 };
 
 const cashOnDeliveryFee = 9;
+const merchantUpiId = process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID ?? "shubhachandra12pro@okicici";
+
+function buildUpiUrls(app: UpiApp, amount: number, orderId: string) {
+  const transactionNote = `Pista Bajaar order ${orderId.slice(0, 8)}`;
+  const params = new URLSearchParams({
+    pa: merchantUpiId,
+    pn: "Pista Bajaar",
+    am: String(amount),
+    cu: "INR",
+    tn: transactionNote,
+    tr: orderId
+  });
+  const query = params.toString();
+  const upiUrl = `upi://pay?${query}`;
+  const appUrl = app === "gpay" ? `tez://upi/pay?${query}` : `phonepe://pay?${query}`;
+  const packageName = app === "gpay" ? "com.google.android.apps.nbu.paisa.user" : "com.phonepe.app";
+  const intentUrl = `intent://pay?${query}#Intent;scheme=upi;package=${packageName};S.browser_fallback_url=${encodeURIComponent(upiUrl)};end`;
+
+  return { appUrl, intentUrl, upiUrl };
+}
+
+function openUpiPaymentApp(urls: ReturnType<typeof buildUpiUrls>) {
+  const fallbackTimer = window.setTimeout(() => {
+    window.location.href = urls.intentUrl;
+  }, 900);
+
+  window.addEventListener("pagehide", () => window.clearTimeout(fallbackTimer), { once: true });
+  window.location.href = urls.appUrl;
+}
 
 function getOfferProducts(offer: Offer, products: Product[]) {
   return {
@@ -42,6 +70,7 @@ export default function CartPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [phone, setPhone] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [cart, setCart] = useState<Cart>({});
   const [cartPacks, setCartPacks] = useState<CartPacks>({});
@@ -53,17 +82,29 @@ export default function CartPage() {
   const [claimedOffer, setClaimedOffer] = useState<Offer | null>(null);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>("idle");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | "">("");
+  const [upiApp, setUpiApp] = useState<UpiApp | "">("");
+  const [isPaying, setIsPaying] = useState(false);
+  const [isConfirmingOrder, setIsConfirmingOrder] = useState(false);
   const [toast, setToast] = useState("");
   const [adminAlert, setAdminAlert] = useState("");
-  const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isAddressPanelOpen, setIsAddressPanelOpen] = useState(false);
+  const [totalSavings, setTotalSavings] = useState(0);
+  
+  // Gifting and Payment Screenshot States
+  const [isGift, setIsGift] = useState(false);
+  const [giftNote, setGiftNote] = useState("");
+  const [giftWrap, setGiftWrap] = useState(false);
+  const [upiScreenshot, setUpiScreenshot] = useState("");
+  const [isDirectQrPayment, setIsDirectQrPayment] = useState(false);
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("druits_phone") ?? "";
-    const savedCart = localStorage.getItem("druits_cart");
-    const savedCartPacks = localStorage.getItem("druits_cart_packs");
+    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
+    const savedName = localStorage.getItem("pistabajaar_name") ?? "";
+    const savedCart = localStorage.getItem("pistabajaar_cart");
+    const savedCartPacks = localStorage.getItem("pistabajaar_cart_packs");
     if (savedPhone) {
       setPhone(savedPhone);
+      setCustomerName(savedName);
       setIsLoggedIn(true);
     }
     if (savedCart) setCart(JSON.parse(savedCart) as Cart);
@@ -71,12 +112,25 @@ export default function CartPage() {
 
     void Promise.all([
       fetch("/api/products").then((response) => response.json()),
-      fetch("/api/offers").then((response) => response.json())
-    ]).then(([productData, offerData]) => {
+      fetch("/api/offers").then((response) => response.json()),
+      savedPhone
+        ? fetch(`/api/coupon-usage?phone=${encodeURIComponent(savedPhone)}`).then((response) => response.json())
+        : Promise.resolve({ usedOfferIds: [] }),
+      savedPhone
+        ? fetch(`/api/savings?phone=${encodeURIComponent(savedPhone)}`).then((response) => response.json())
+        : Promise.resolve({ totalSavings: 0 })
+    ]).then(([productData, offerData, usageData, savingsData]) => {
       setProducts(productData.products ?? []);
       const activeOffers = (offerData.offers ?? []) as Offer[];
       setOffers(activeOffers);
-      const claimedOfferId = localStorage.getItem("druits_claimed_offer");
+      const claimedOfferId = localStorage.getItem("pistabajaar_claimed_offer");
+      const usedOfferIds = new Set((usageData.usedOfferIds ?? []) as string[]);
+      setTotalSavings(Number(savingsData.totalSavings ?? 0));
+      if (claimedOfferId && usedOfferIds.has(claimedOfferId)) {
+        localStorage.removeItem("pistabajaar_claimed_offer");
+        setToast("That coupon was already used, so it was removed from this cart.");
+        return;
+      }
       const matchedOffer = activeOffers.find((offer) => offer.id === claimedOfferId);
       if (matchedOffer) {
         setClaimedOffer(matchedOffer);
@@ -90,8 +144,8 @@ export default function CartPage() {
               next[product.id] = Math.min(product.stockKg ?? Number.POSITIVE_INFINITY, quantityKg);
               nextPacks[product.id] = inferPackSize(quantityKg);
             });
-            localStorage.setItem("druits_cart", JSON.stringify(next));
-            localStorage.setItem("druits_cart_packs", JSON.stringify(nextPacks));
+            localStorage.setItem("pistabajaar_cart", JSON.stringify(next));
+            localStorage.setItem("pistabajaar_cart_packs", JSON.stringify(nextPacks));
             setCartPacks(nextPacks);
             return next;
           });
@@ -101,11 +155,11 @@ export default function CartPage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("druits_cart", JSON.stringify(cart));
+    localStorage.setItem("pistabajaar_cart", JSON.stringify(cart));
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem("druits_cart_packs", JSON.stringify(cartPacks));
+    localStorage.setItem("pistabajaar_cart_packs", JSON.stringify(cartPacks));
   }, [cartPacks]);
 
   useEffect(() => {
@@ -122,8 +176,7 @@ export default function CartPage() {
         setAddress({
           addressLine: defaultAddress.addressLine,
           city: defaultAddress.city,
-          pinCode: defaultAddress.pinCode,
-          landmark: defaultAddress.landmark
+          pinCode: defaultAddress.pinCode
         });
       }
     }
@@ -147,9 +200,10 @@ export default function CartPage() {
   const subtotal = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
   const discountAmount = claimedOffer?.discountCode ? Math.round(subtotal * 0.1) : 0;
   const codFee = paymentMethod === "cash_on_delivery" && cartItems.length ? cashOnDeliveryFee : 0;
+  const giftWrapFee = isGift && giftWrap ? 49 : 0;
   const itemAmount = subtotal - discountAmount;
-  const total = itemAmount + codFee;
-  const hasPaymentMethod = paymentMethod !== "";
+  const total = itemAmount + codFee + giftWrapFee;
+  const hasPaymentMethod = paymentMethod === "upi" ? upiApp !== "" : paymentMethod !== "";
   const selectedSavedAddress = savedAddresses.find((entry) => entry.id === selectedAddressId);
 
   function stepQuantity(productId: string, direction: -1 | 1) {
@@ -163,6 +217,21 @@ export default function CartPage() {
       else if (product?.stockKg !== undefined && nextQuantity > product.stockKg) next[productId] = product.stockKg;
       else next[productId] = nextQuantity;
       return next;
+    });
+  }
+
+  function updateCartPack(productId: string, nextPackSize: number) {
+    setCartPacks((current) => {
+      const currentPackSize = current[productId] ?? inferPackSize(cart[productId] ?? nextPackSize);
+      const currentQuantity = cart[productId] ?? nextPackSize;
+      const packCount = Math.max(1, Math.round(currentQuantity / currentPackSize));
+      const product = products.find((entry) => entry.id === productId);
+      const nextQuantity = Number((packCount * nextPackSize).toFixed(2));
+      setCart((cartCurrent) => ({
+        ...cartCurrent,
+        [productId]: product?.stockKg !== undefined ? Math.min(product.stockKg, nextQuantity) : nextQuantity
+      }));
+      return { ...current, [productId]: nextPackSize };
     });
   }
 
@@ -182,76 +251,131 @@ export default function CartPage() {
     setCheckoutState("payment");
   }
 
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setToast("Location is not supported by this browser.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = Number(position.coords.latitude.toFixed(6));
-        const lng = Number(position.coords.longitude.toFixed(6));
-        setSelectedLocation({ lat, lng });
-        setAddress((current) => ({
-          ...current,
-          landmark: `Map pin: ${lat}, ${lng}`
-        }));
-        setToast("Live location added to landmark.");
-      },
-      () => setToast("Could not access your live location.")
-    );
-  }
-
   async function confirmOrder() {
+    if (isPaying || isConfirmingOrder) return;
+
     if (!paymentMethod) {
       setToast("Choose a payment method to see your final total.");
       return;
     }
 
-    if (addressMode === "new" && saveNewAddress) {
-      await fetch("/api/addresses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone,
-          name: "Delivery address",
-          contactPhone: phone,
-          ...address,
-          isDefault: savedAddresses.length === 0
-        })
-      });
+    if (paymentMethod === "upi" && !upiApp && !isDirectQrPayment) {
+      setToast("Choose GPay or PhonePe before confirming the order.");
+      return;
     }
 
+    if (paymentMethod === "upi" && !isDirectQrPayment) {
+      startUpiPayment();
+      return;
+    }
+
+    setIsConfirmingOrder(true);
+    try {
+      if (addressMode === "new" && saveNewAddress) {
+        await fetch("/api/addresses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone,
+            name: "Delivery address",
+            contactPhone: phone,
+            ...address,
+            isDefault: savedAddresses.length === 0
+          })
+        });
+      }
+
+      const data = await createOrder(paymentMethod, paymentMethod === "upi" ? (upiApp || "gpay") : "");
+      if (!data) return;
+
+      completeOrder(data);
+    } finally {
+      setIsConfirmingOrder(false);
+    }
+  }
+
+  async function createOrder(method: PaymentMethod, selectedUpiApp: UpiApp | "" = upiApp, orderId?: string) {
     const response = await fetch("/api/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        orderId,
         phone,
+        name: customerName,
         address,
         items: cartItems.map((item) => ({ productId: item.product.id, quantityKg: item.quantityKg })),
         claimedOfferId: claimedOffer?.id,
         discountCode: claimedOffer?.discountCode,
-        paymentMethod
+        paymentMethod: method,
+        upiApp: method === "upi" ? selectedUpiApp : undefined,
+        isGift,
+        giftNote: isGift ? giftNote : undefined,
+        giftWrap: isGift ? giftWrap : undefined,
+        upiScreenshot: method === "upi" ? upiScreenshot : undefined
       })
     });
     const data = await response.json();
     if (!response.ok) {
       setToast(data.error);
-      return;
+      return null;
     }
+    return data;
+  }
 
+  function completeOrder(data: { order: { id: string; deliveryOtp?: string }; adminAlert: string }) {
     setCart({});
     setCartPacks({});
     setAddress(emptyAddress);
     setClaimedOffer(null);
-    localStorage.removeItem("druits_claimed_offer");
-    localStorage.removeItem("druits_cart_packs");
+    setIsGift(false);
+    setGiftNote("");
+    setGiftWrap(false);
+    setUpiScreenshot("");
+    localStorage.removeItem("pistabajaar_claimed_offer");
+    localStorage.removeItem("pistabajaar_cart_packs");
+    setTotalSavings((current) => current + (discountAmount || 0));
     setCheckoutState("success");
     setAdminAlert(data.adminAlert);
     setToast(`Order placed. Delivery OTP: ${data.order.deliveryOtp}`);
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("Order placed", { body: `Your order is confirmed. Delivery OTP: ${data.order.deliveryOtp}.` });
+  }
+
+  function startUpiPayment(selectedApp: UpiApp | "" = upiApp) {
+    if (!selectedApp || isPaying) return;
+    setPaymentMethod("upi");
+    setUpiApp(selectedApp);
+    setIsPaying(true);
+
+    try {
+      if (addressMode === "new" && saveNewAddress) {
+        void fetch("/api/addresses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone,
+            name: "Delivery address",
+            contactPhone: phone,
+            ...address,
+            isDefault: savedAddresses.length === 0
+          })
+        });
+      }
+
+      const orderId = crypto.randomUUID();
+      const paymentUrls = buildUpiUrls(selectedApp, total, orderId);
+
+      void createOrder("upi", selectedApp, orderId)
+        .then((data) => {
+          if (data) completeOrder(data);
+        })
+        .catch(() => {
+          setToast("Order was not saved. Please contact support if payment was completed.");
+        });
+
+      openUpiPaymentApp(paymentUrls);
+    } catch {
+      setToast("Could not open payment app. Please try again.");
+    } finally {
+      window.setTimeout(() => setIsPaying(false), 1400);
     }
   }
 
@@ -274,20 +398,259 @@ export default function CartPage() {
             </div>
           </div>
 
-          <div className="payment-options">
-            <button className={`payment-option ${paymentMethod === "cash_on_delivery" ? "active" : ""}`} type="button" onClick={() => setPaymentMethod("cash_on_delivery")}>
-              <strong>Cash on delivery</strong>
-              <span>Pay when your dry fruits arrive. A small ₹9 cash handling charge will be added.</span>
+          <div className="payment-options" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+            {/* Google Pay Card */}
+            <button 
+              type="button"
+              onClick={() => {
+                setPaymentMethod("upi");
+                setUpiApp("gpay");
+                setIsDirectQrPayment(false);
+              }}
+              style={{
+                background: 'var(--paper)',
+                border: paymentMethod === "upi" && upiApp === "gpay" && !isDirectQrPayment ? '2px solid var(--gold)' : '1px solid var(--line)',
+                borderRadius: '16px',
+                padding: '16px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+                boxShadow: paymentMethod === "upi" && upiApp === "gpay" && !isDirectQrPayment ? 'var(--shadow-gold)' : 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#f4f7fa', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0' }}>
+                  <svg style={{ width: '20px', height: '20px', display: 'block', margin: 'auto' }} viewBox="0 0 40 40">
+                    <path d="M19.98 9.25c2.72 0 4.96.96 6.84 2.8l5.12-5.12C28.84 3.97 24.78 2.5 19.98 2.5 13.08 2.5 7.18 6.54 4.3 12.39l6.32 4.9C12.1 12.78 15.68 9.25 19.98 9.25z" fill="#ea4335" />
+                    <path d="M37.1 20.35c0-1.28-.12-2.52-.33-3.73H19.98v7.07h9.61c-.41 2.22-1.66 4.11-3.53 5.37l5.48 4.25c3.21-2.96 5.06-7.32 5.06-12.96z" fill="#4285f4" />
+                    <path d="M10.62 22.71c-.39-1.17-.62-2.42-.62-3.71s.23-2.54.62-3.71l-6.32-4.9C1.51 15.11.5 17.44.5 19.98s1.01 4.87 2.8 6.59l7.32-3.86z" fill="#fbbc05" />
+                    <path d="M19.98 30.75c-4.3 0-7.88-3.53-9.36-8.04l-6.32 4.9C7.18 33.46 13.08 37.5 19.98 37.5c4.8 0 8.84-1.57 11.78-4.27l-5.48-4.25c-1.62 1.09-3.69 1.77-6.3 1.77z" fill="#34a853" />
+                  </svg>
+                </div>
+                <div>
+                  <strong style={{ display: 'block', fontSize: '0.9rem', color: 'var(--foreground)' }}>Google Pay</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Pay instantly via secure GPay deep link</span>
+                </div>
+              </div>
+              <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(212,175,55,0.15)', color: 'var(--gold)', fontWeight: 'bold' }}>Instant</span>
             </button>
-            <button className={`payment-option ${paymentMethod === "upi" ? "active" : ""}`} type="button" onClick={() => setPaymentMethod("upi")}>
-              <strong>UPI pay</strong>
-              <span>Mock UPI payment marked paid locally.</span>
+
+            {/* PhonePe Card */}
+            <button 
+              type="button"
+              onClick={() => {
+                setPaymentMethod("upi");
+                setUpiApp("phonepe");
+                setIsDirectQrPayment(false);
+              }}
+              style={{
+                background: 'var(--paper)',
+                border: paymentMethod === "upi" && upiApp === "phonepe" && !isDirectQrPayment ? '2px solid var(--gold)' : '1px solid var(--line)',
+                borderRadius: '16px',
+                padding: '16px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+                boxShadow: paymentMethod === "upi" && upiApp === "phonepe" && !isDirectQrPayment ? 'var(--shadow-gold)' : 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#f4effc', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e3d7f5' }}>
+                  <svg style={{ width: '20px', height: '20px', color: '#5f259f', display: 'block', margin: 'auto' }} fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14.5h-2v-5h2v5zm0-6.5h-2V8h2v2z" />
+                  </svg>
+                </div>
+                <div>
+                  <strong style={{ display: 'block', fontSize: '0.9rem', color: 'var(--foreground)' }}>PhonePe</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Redirect and pay directly using PhonePe</span>
+                </div>
+              </div>
+              <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(212,175,55,0.15)', color: 'var(--gold)', fontWeight: 'bold' }}>Instant</span>
             </button>
-            <button className={`payment-option ${paymentMethod === "card" ? "active" : ""}`} type="button" onClick={() => setPaymentMethod("card")}>
-              <strong>Card pay</strong>
-              <span>Mock card payment marked paid locally.</span>
+
+            {/* UPI Direct Scan & Pay */}
+            <button 
+              type="button"
+              onClick={() => {
+                setPaymentMethod("upi");
+                setUpiApp("gpay"); // Default upiApp so server validation passes
+                setIsDirectQrPayment(true);
+              }}
+              style={{
+                background: 'var(--paper)',
+                border: paymentMethod === "upi" && isDirectQrPayment ? '2px solid var(--gold)' : '1px solid var(--line)',
+                borderRadius: '16px',
+                padding: '16px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+                boxShadow: paymentMethod === "upi" && isDirectQrPayment ? 'var(--shadow-gold)' : 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fdfaf2', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #f3e6cd' }}>
+                  <svg style={{ width: '18px', height: '18px', color: 'var(--gold)', display: 'block', margin: 'auto' }} fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <path d="M14 14h2v2h-2zm4 0h3v3h-3zm-4 4h3v3h-3zm4 1h2v2h-2z" />
+                  </svg>
+                </div>
+                <div>
+                  <strong style={{ display: 'block', fontSize: '0.9rem', color: 'var(--foreground)' }}>UPI Direct Scan & Pay QR</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Scan QR or upload payment verification proof</span>
+                </div>
+              </div>
+              <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(16,185,129,0.1)', color: '#10b981', fontWeight: 'bold' }}>QR Code</span>
+            </button>
+
+            {/* Cash on Delivery Card */}
+            <button 
+              type="button"
+              onClick={() => {
+                setPaymentMethod("cash_on_delivery");
+                setUpiApp("");
+                setIsDirectQrPayment(false);
+              }}
+              style={{
+                background: 'var(--paper)',
+                border: paymentMethod === "cash_on_delivery" ? '2px solid var(--gold)' : '1px solid var(--line)',
+                borderRadius: '16px',
+                padding: '16px',
+                textAlign: 'left',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s ease',
+                cursor: 'pointer',
+                boxShadow: paymentMethod === "cash_on_delivery" ? 'var(--shadow-gold)' : 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#f4faf2', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #dcefd4' }}>
+                  <svg style={{ width: '20px', height: '20px', color: '#10b981', display: 'block', margin: 'auto' }} fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <rect x="2" y="6" width="20" height="12" rx="2" />
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="M6 12h.01M18 12h.01" />
+                  </svg>
+                </div>
+                <div>
+                  <strong style={{ display: 'block', fontSize: '0.9rem', color: 'var(--foreground)' }}>Cash on Delivery</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Pay cash at your door. ₹9 Handling Charge applies</span>
+                </div>
+              </div>
+              <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontWeight: 'bold' }}>+₹9 fee</span>
             </button>
           </div>
+
+          {/* Inline QR Scanner and Uploader */}
+          {paymentMethod === "upi" && isDirectQrPayment && (
+            <div 
+              style={{
+                marginTop: '16px',
+                padding: '20px',
+                background: 'var(--paper-strong)',
+                borderRadius: '24px',
+                border: '1px solid var(--line)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                gap: '12px'
+              }}
+            >
+              <span style={{ fontSize: '0.75rem', fontWeight: '900', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Direct QR Scan & Pay</span>
+              <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '2px solid var(--gold)', boxShadow: 'var(--shadow-gold)' }}>
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${merchantUpiId}&pn=Pista%20Bajaar&am=${total}&cu=INR&tn=Order%20Payment`)}`} 
+                  alt="Payment QR Code" 
+                  style={{ display: 'block', width: '160px', height: '160px' }} 
+                />
+              </div>
+              <p className="muted" style={{ fontSize: '0.75rem', lineHeight: '1.5', margin: '0', maxWidth: '90%' }}>
+                Scan QR with GPay, PhonePe, Paytm or BHIM to complete your luxury checkout of <strong style={{ color: 'var(--foreground)' }}>₹{total}</strong>.
+              </p>
+
+              {/* Screenshot Upload Container */}
+              <div style={{ width: '100%', borderTop: '1px dashed var(--line)', paddingTop: '16px', textAlign: 'left' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: 'var(--foreground)', display: 'block', marginBottom: '8px' }}>📸 Upload Screenshot Verification</span>
+                {!upiScreenshot ? (
+                  <div 
+                    style={{
+                      border: '2px dashed var(--gold)',
+                      borderRadius: '16px',
+                      padding: '16px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      background: 'rgba(212, 175, 55, 0.05)',
+                      position: 'relative'
+                    }}
+                  >
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setUpiScreenshot(reader.result as string);
+                            setToast("Screenshot uploaded successfully! 📸");
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        opacity: 0,
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <span style={{ fontSize: '1.5rem', display: 'block', marginBottom: '4px' }}>📤</span>
+                    <strong style={{ fontSize: '0.75rem', color: 'var(--foreground)' }}>Tap to Upload Payment Proof</strong>
+                    <p className="muted" style={{ fontSize: '0.65rem', margin: '2px 0 0 0' }}>JPG, PNG formats supported</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--paper)', padding: '12px', borderRadius: '16px', border: '1px solid var(--line)', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <img 
+                        src={upiScreenshot} 
+                        alt="Screenshot Preview" 
+                        style={{ width: '40px', height: '56px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--line)' }} 
+                      />
+                      <div style={{ textAlign: 'left' }}>
+                        <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          ✓ Screenshot Uploaded
+                        </span>
+                        <small className="muted" style={{ display: 'block', fontSize: '0.65rem' }}>Instant admin dispatch validation active</small>
+                      </div>
+                    </div>
+                    <button 
+                      className="button ghost" 
+                      type="button" 
+                      style={{ fontSize: '0.7rem', padding: '6px 12px', borderRadius: '8px', border: '1px solid #ff4d4d', color: '#ff4d4d' }} 
+                      onClick={() => setUpiScreenshot("")}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="payment-summary">
             <div>
@@ -298,6 +661,18 @@ export default function CartPage() {
               <div>
                 <span>Coupon discount</span>
                 <strong>-₹{discountAmount}</strong>
+              </div>
+            ) : null}
+            {isGift && giftWrap ? (
+              <div>
+                <span>Festive Gift Wrapping</span>
+                <strong>+₹49</strong>
+              </div>
+            ) : null}
+            {paymentMethod === "cash_on_delivery" ? (
+              <div>
+                <span>COD Handling Charge</span>
+                <strong>+₹9</strong>
               </div>
             ) : null}
             <div className="payment-summary-total">
@@ -312,8 +687,18 @@ export default function CartPage() {
             <small>{hasPaymentMethod ? "To pay" : "Select payment"}</small>
             <strong>{hasPaymentMethod ? `₹${total}` : "Pending"}</strong>
           </span>
-          <button className="button" type="button" onClick={confirmOrder} disabled={!hasPaymentMethod}>
-            Confirm order
+          <button className="button" type="button" onClick={confirmOrder} disabled={isPaying || isConfirmingOrder}>
+            {isConfirmingOrder
+              ? "Placing order..."
+              : paymentMethod === "upi"
+                ? isPaying
+                  ? "Opening payment..."
+                  : upiApp
+                    ? "Pay"
+                    : "Choose UPI app"
+                : paymentMethod
+                  ? "Confirm order"
+                  : "Choose payment"}
           </button>
         </div>
 
@@ -333,8 +718,10 @@ export default function CartPage() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/">
-          <span className="brand-mark">D</span>
-          <span>Druits</span>
+          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
+            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </span>
+          <span>Pista Bajaar</span>
         </a>
         <a className="button ghost" href="/">
           Shop
@@ -372,8 +759,7 @@ export default function CartPage() {
                           setAddress({
                             addressLine: entry.addressLine,
                             city: entry.city,
-                            pinCode: entry.pinCode,
-                            landmark: entry.landmark
+                            pinCode: entry.pinCode
                           });
                           setIsAddressPanelOpen(false);
                         }}
@@ -390,6 +776,9 @@ export default function CartPage() {
                   </div>
                 </div>
               ) : null}
+              <a className="button ghost full-button" href="/addresses">
+                Manage saved addresses
+              </a>
               <button
                 className="button secondary"
                 type="button"
@@ -405,7 +794,14 @@ export default function CartPage() {
                 <>
                   <div className="field">
                     <label htmlFor="addressLine">Address line</label>
-                    <textarea id="addressLine" rows={3} value={address.addressLine} onChange={(event) => setAddress({ ...address, addressLine: event.target.value })} />
+                    <textarea
+                      id="addressLine"
+                      rows={4}
+                      placeholder="Paste your accurate full address or Google Maps copied location here."
+                      value={address.addressLine}
+                      onChange={(event) => setAddress({ ...address, addressLine: event.target.value })}
+                    />
+                    <small className="field-help">Please paste the complete Google Maps address/location here for accurate delivery.</small>
                   </div>
                   <div className="field">
                     <label htmlFor="city">City</label>
@@ -414,23 +810,6 @@ export default function CartPage() {
                   <div className="field">
                     <label htmlFor="pinCode">Pin code</label>
                     <input id="pinCode" inputMode="numeric" value={address.pinCode} onChange={(event) => setAddress({ ...address, pinCode: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="landmark">Landmark</label>
-                    <div className="location-field">
-                      <input id="landmark" value={address.landmark} onChange={(event) => setAddress({ ...address, landmark: event.target.value })} />
-                      <button className="icon-button" type="button" aria-label="Use live location for landmark" onClick={useCurrentLocation}>
-                        <svg aria-hidden="true" viewBox="0 0 24 24">
-                          <path d="M12 21s7-5.3 7-12a7 7 0 0 0-14 0c0 6.7 7 12 7 12Z" />
-                          <circle cx="12" cy="9" r="2.5" />
-                        </svg>
-                      </button>
-                    </div>
-                    {selectedLocation ? (
-                      <p className="muted">
-                        Selected live location: {selectedLocation.lat}, {selectedLocation.lng}
-                      </p>
-                    ) : null}
                   </div>
                   <label className="check-row">
                     <input type="checkbox" checked={saveNewAddress} onChange={(event) => setSaveNewAddress(event.target.checked)} />
@@ -443,6 +822,7 @@ export default function CartPage() {
         ) : null}
 
         <div className="savings-strip">Your savings are updated when you apply a coupon</div>
+        <div className="savings-total">You Saved ₹{totalSavings} till now</div>
 
         <a className="coupon-entry" href="/coupons">
           <span className="coupon-icon">%</span>
@@ -453,12 +833,61 @@ export default function CartPage() {
           <span className="chevron">›</span>
         </a>
 
+        {/* Luxury Gifting Options Panel */}
+        {cartItems.length ? (
+          <div className="panel" style={{ padding: '16px', background: 'var(--paper-strong)', borderRadius: 'var(--border-radius-card)', border: '1px solid var(--line)', marginBottom: '16px' }}>
+            <label className="check-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={isGift} 
+                onChange={(event) => {
+                  setIsGift(event.target.checked);
+                  if (!event.target.checked) {
+                    setGiftWrap(false);
+                    setGiftNote("");
+                  }
+                }} 
+                style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
+              />
+              <strong style={{ fontSize: '1rem', color: 'var(--foreground)' }}>🎁 Send this order as a Gift</strong>
+            </label>
+            
+            {isGift && (
+              <div className="gift-details" style={{ marginTop: '16px', paddingLeft: '8px', borderLeft: '2px solid var(--gold)' }}>
+                <div className="field" style={{ marginBottom: '12px' }}>
+                  <label htmlFor="giftNote" style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 'bold' }}>Gift Note Message</label>
+                  <textarea
+                    id="giftNote"
+                    rows={3}
+                    placeholder="Write a custom royal message to include with the gift..."
+                    value={giftNote}
+                    onChange={(event) => setGiftNote(event.target.value)}
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--foreground)', fontFamily: 'inherit' }}
+                  />
+                </div>
+                
+                <label className="check-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={giftWrap} 
+                    onChange={(event) => setGiftWrap(event.target.checked)} 
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--accent)' }}
+                  />
+                  <span style={{ fontSize: '0.9rem', color: 'var(--foreground)' }}>
+                    Add Premium Festive Gift Wrapping (<strong>+₹49</strong>)
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="panel cart-card-panel">
           <div className="section-head">
             <div>
               <p>{cartItems.length ? `Dry fruits (${cartItems.length} item${cartItems.length > 1 ? "s" : ""})` : "Your cart is empty."}</p>
             </div>
-            <strong className="price">₹{itemAmount}</strong>
+            <strong className="price">₹{itemAmount + (isGift && giftWrap ? 49 : 0)}</strong>
           </div>
           <div className="cart-list">
             {cartItems.map((item) => (
@@ -469,6 +898,14 @@ export default function CartPage() {
                   <p className="cart-pack-line">
                     {item.packCount} {item.packCount === 1 ? "Pack" : "Packs"} ({formatPackSize(item.packSize)})
                   </p>
+                  <label className="cart-pack-select">
+                    Pack
+                    <select value={item.packSize} onChange={(event) => updateCartPack(item.product.id, Number(event.target.value))}>
+                      <option value={0.25}>250g</option>
+                      <option value={0.5}>500g</option>
+                      <option value={1}>1kg</option>
+                    </select>
+                  </label>
                   <p className="muted">₹{item.product.pricePerKg}/kg · ₹{item.lineTotal}</p>
                 </div>
                 <div className="qty">
@@ -504,9 +941,15 @@ export default function CartPage() {
               <span>-₹{discountAmount}</span>
             </div>
           ) : null}
+          {isGift && giftWrap ? (
+            <div className="total-row subtle">
+              <span>Festive Gift Wrapping</span>
+              <span>+₹49</span>
+            </div>
+          ) : null}
           <div className="total-row">
             <span>Items amount</span>
-            <span>₹{itemAmount}</span>
+            <span>₹{itemAmount + (isGift && giftWrap ? 49 : 0)}</span>
           </div>
         </div>
       </section>
@@ -514,7 +957,7 @@ export default function CartPage() {
       <div className="cart-pay-bar">
         <span>
           <small>Items amount</small>
-          <strong>₹{itemAmount}</strong>
+          <strong>₹{itemAmount + (isGift && giftWrap ? 49 : 0)}</strong>
         </span>
         <button className="button" type="button" onClick={openPaymentStep}>
           {cartItems.length ? "Proceed to Pay" : "Add items"}
@@ -522,16 +965,59 @@ export default function CartPage() {
       </div>
 
       {checkoutState === "success" ? (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="success-title">
-          <div className="modal success">
-            <h2 id="success-title">Order placed</h2>
-            <p>Your dry fruits order has been saved. The admin alert is ready below.</p>
-            <p>
-              <strong>{adminAlert}</strong>
-            </p>
-            <a className="button" href="/orders">
-              View orders
-            </a>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="success-title" onClick={() => setCheckoutState("idle")} style={{ position: 'relative', overflow: 'hidden' }}>
+          
+          {/* Pure CSS Confetti Shower */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 99 }}>
+            {Array.from({ length: 40 }).map((_, i) => {
+              const left = Math.random() * 100;
+              const delay = Math.random() * 5;
+              const duration = 2 + Math.random() * 3;
+              const colors = ['#d4af37', '#aa841c', '#2c5e2d', '#596b56', '#e3ebd6', '#aa841c'];
+              const color = colors[i % colors.length];
+              const size = 6 + Math.random() * 8;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: '-20px',
+                    left: `${left}%`,
+                    width: `${size}px`,
+                    height: `${size}px`,
+                    background: color,
+                    borderRadius: i % 2 === 0 ? '50%' : '2px',
+                    opacity: 0.8,
+                    transform: `rotate(${Math.random() * 360}deg)`,
+                    animation: `confetti-fall ${duration}s linear ${delay}s infinite`
+                  }}
+                />
+              );
+            })}
+          </div>
+          
+          <style>{`
+            @keyframes confetti-fall {
+              0% { top: -20px; transform: translateY(0) rotate(0deg); }
+              100% { top: 100%; transform: translateY(100vh) rotate(720deg); }
+            }
+          `}</style>
+
+          <div className="modal success" onClick={(event) => event.stopPropagation()} style={{ border: '2px solid var(--gold)', boxShadow: 'var(--shadow-gold)', textAlign: 'center', padding: '30px' }}>
+            <span style={{ fontSize: '3rem', display: 'block', marginBottom: '16px' }}>🎉</span>
+            <h2 id="success-title" style={{ color: 'var(--accent)', fontFamily: 'Outfit, sans-serif' }}>Pista Bajaar Confirmed!</h2>
+            <p className="muted" style={{ fontSize: '0.95rem' }}>Your premium dry fruits order has been placed with royal care.</p>
+            <div style={{ background: 'var(--paper-strong)', padding: '12px', borderRadius: '8px', border: '1px solid var(--line)', margin: '16px 0' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--foreground)', fontWeight: 'bold' }}>{adminAlert}</p>
+            </div>
+            <div className="success-actions" style={{ justifyContent: 'center' }}>
+              <a className="button" href="/orders" style={{ background: 'var(--accent)', color: '#fff' }}>
+                View Order History
+              </a>
+              <button className="button ghost" type="button" onClick={() => setCheckoutState("idle")}>
+                Continue Shopping
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

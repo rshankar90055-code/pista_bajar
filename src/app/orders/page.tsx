@@ -7,9 +7,10 @@ export default function OrdersPage() {
   const [phone, setPhone] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [toast, setToast] = useState("");
+  const [cancellingOrderId, setCancellingOrderId] = useState("");
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("druits_phone") ?? "";
+    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
     setPhone(savedPhone);
     if (savedPhone) void loadOrders(savedPhone);
   }, []);
@@ -26,22 +27,26 @@ export default function OrdersPage() {
   }
 
   async function cancelOrder(orderId: string) {
-    const response = await fetch("/api/cancel-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, phone })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not cancel order.");
-      return;
-    }
-    setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
-    setToast("Order cancelled.");
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("Order cancelled", {
-        body: "Your order has been cancelled successfully."
+    if (!phone || cancellingOrderId) return;
+    setCancellingOrderId(orderId);
+
+    try {
+      const response = await fetch("/api/cancel-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, phone })
       });
+      const data = await response.json();
+      if (!response.ok) {
+        setToast(data.error ?? "Could not cancel order.");
+        return;
+      }
+      setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
+      setToast("Order cancelled.");
+    } catch {
+      setToast("Could not cancel order. Please check your connection and try again.");
+    } finally {
+      setCancellingOrderId("");
     }
   }
 
@@ -49,8 +54,10 @@ export default function OrdersPage() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/">
-          <span className="brand-mark">D</span>
-          <span>Druits</span>
+          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
+            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </span>
+          <span>Pista Bajaar</span>
         </a>
         <a className="button ghost" href="/">
           Shop
@@ -97,14 +104,15 @@ export default function OrdersPage() {
                   <p className="muted">No coupon used</p>
                 )}
                 <p className="muted">
-                  Payment: {order.paymentMethod?.replaceAll("_", " ") ?? "Not selected"} · {order.paymentStatus ?? "pending"}
+                  Payment: {order.paymentMethod?.replaceAll("_", " ") ?? "Not selected"}
+                  {order.upiApp ? ` (${order.upiApp === "gpay" ? "GPay" : "PhonePe"})` : ""} · {order.paymentStatus ?? "pending"}
                 </p>
                 <p className="muted">
                   Delivery: {order.address.addressLine}, {order.address.city} {order.address.pinCode}
                 </p>
                 {order.status === "new" ? (
-                  <button className="button danger" type="button" onClick={() => cancelOrder(order.id)}>
-                    Cancel order
+                  <button className="button danger" type="button" onClick={() => cancelOrder(order.id)} disabled={cancellingOrderId === order.id}>
+                    {cancellingOrderId === order.id ? "Cancelling..." : "Cancel order"}
                   </button>
                 ) : null}
               </article>

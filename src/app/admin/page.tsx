@@ -10,7 +10,7 @@ const statusLabels: Record<OrderStatus, string> = {
   delivered: "Delivered"
 };
 
-const categories: ProductCategory[] = ["almonds", "cashews", "pistachios", "dates", "raisins", "walnuts", "figs"];
+const categories: ProductCategory[] = ["almonds", "cashews", "pistachios", "dates", "raisins", "walnuts", "figs", "saffron", "seeds", "snacks", "gifts", "chocolates"];
 
 function formatDate(dateValue: string) {
   const [year, month, day] = dateValue.split("-");
@@ -114,6 +114,21 @@ export default function AdminPage() {
     }
     setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
     setToast("Order status updated.");
+  }
+
+  async function verifyUpiPayment(orderId: string) {
+    const response = await fetch("/api/update-order-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, paymentStatus: "paid", adminPassword: password })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setToast(data.error);
+      return;
+    }
+    setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
+    setToast("UPI Payment verified & marked as paid.");
   }
 
   async function sendToShiprocket(order: Order) {
@@ -349,8 +364,10 @@ export default function AdminPage() {
     <main className="shell">
       <header className="topbar">
         <a className="brand" href="/">
-          <span className="brand-mark">D</span>
-          <span>Druits Admin</span>
+          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
+            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </span>
+          <span>Pista Bajaar Admin</span>
         </a>
         <a className="button ghost" href="/">
           Storefront
@@ -391,7 +408,8 @@ export default function AdminPage() {
                     <article className="order-card" key={order.id}>
                       <div className="section-head">
                         <div>
-                          <strong>{order.userPhone}</strong>
+                          <strong>{order.userName || order.userPhone}</strong>
+                          {order.userName ? <p className="muted">{order.userPhone}</p> : null}
                           <p className="muted">
                             {order.address.addressLine}, {order.address.city} {order.address.pinCode}
                           </p>
@@ -405,9 +423,45 @@ export default function AdminPage() {
                           </p>
                         ))}
                       </div>
+                      
+                      {order.isGift && (
+                        <div className="gift-badge-panel" style={{ marginTop: '8px', padding: '10px', background: 'var(--paper-strong)', borderRadius: '8px', borderLeft: '3px solid var(--gold)' }}>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>🎁 Gift Order</span>
+                          {order.giftWrap && <span style={{ fontSize: '0.8rem', marginLeft: '10px', background: 'var(--gold)', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Premium Festive Wrap</span>}
+                          {order.giftNote && (
+                            <p style={{ margin: '4px 0 0 0', fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                              &ldquo;{order.giftNote}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {order.paymentMethod === "upi" && order.upiScreenshot && (
+                        <div className="screenshot-panel" style={{ marginTop: '8px' }}>
+                          <span className="muted" style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem' }}>Payment Screenshot:</span>
+                          <img
+                            src={order.upiScreenshot}
+                            alt="UPI Screenshot"
+                            style={{
+                              maxWidth: '120px',
+                              maxHeight: '160px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--line)',
+                              cursor: 'zoom-in',
+                              boxShadow: 'var(--shadow)'
+                            }}
+                            onClick={() => {
+                              const w = window.open();
+                              if (w) w.document.write(`<img src="${order.upiScreenshot}" style="max-width:100%; max-height:100%; display:block; margin:auto;" />`);
+                            }}
+                          />
+                        </div>
+                      )}
+
                       <strong>Total: ₹{order.totalAmount}</strong>
                       <p className="muted">
-                        Payment: {order.paymentMethod?.replaceAll("_", " ") ?? "Not selected"} · {order.paymentStatus ?? "pending"}
+                    Payment: {order.paymentMethod?.replaceAll("_", " ") ?? "Not selected"}
+                    {order.upiApp ? ` (${order.upiApp === "gpay" ? "GPay" : "PhonePe"})` : ""} · <span style={{ color: order.paymentStatus === "paid" ? "green" : "orange", fontWeight: 'bold' }}>{order.paymentStatus ?? "pending"}</span>
                       </p>
                       {order.discountCode ? (
                         <p className="coupon-line">
@@ -419,6 +473,11 @@ export default function AdminPage() {
                       )}
                       <p className="muted">Ordered {new Date(order.timestamp).toLocaleString()}</p>
                       <div className="nav-actions">
+                        {order.paymentMethod === "upi" && order.paymentStatus !== "paid" && (
+                          <button className="button" style={{ borderColor: 'var(--gold)', background: 'var(--gold)', color: '#000' }} type="button" onClick={() => verifyUpiPayment(order.id)}>
+                            ✨ Verify UPI Payment
+                          </button>
+                        )}
                         <button className="button secondary" type="button" onClick={() => sendToShiprocket(order)}>
                           Send to Shiprocket
                         </button>

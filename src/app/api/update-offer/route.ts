@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { isAdminPasswordValid } from "@/lib/admin";
+import { notifyUsers } from "@/lib/notification-service";
 import { updateOffer } from "@/lib/store";
 import type { Offer } from "@/lib/types";
 
@@ -8,7 +10,7 @@ export async function POST(request: Request) {
     adminPassword?: string;
   };
 
-  if (body.adminPassword !== "admin123") {
+  if (!isAdminPasswordValid(body.adminPassword)) {
     return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
   }
 
@@ -32,6 +34,15 @@ export async function POST(request: Request) {
   const offer = await updateOffer(body.offerId, updates);
   if (!offer) {
     return NextResponse.json({ error: "Offer not found." }, { status: 404 });
+  }
+
+  if (offer.active) {
+    await notifyUsers({
+      title: `Offer updated: ${offer.title}`,
+      message: offer.description,
+      type: "deal",
+      deepLink: "/coupons"
+    });
   }
 
   return NextResponse.json({ offer });

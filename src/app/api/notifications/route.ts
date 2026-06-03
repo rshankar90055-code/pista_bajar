@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAdminPasswordValid } from "@/lib/admin";
 import { markNotificationsRead, readStore } from "@/lib/store";
 
 export async function GET(request: Request) {
@@ -10,7 +11,7 @@ export async function GET(request: Request) {
   const store = await readStore();
 
   if (audience === "admin") {
-    if (adminPassword !== "admin123") {
+    if (!isAdminPasswordValid(adminPassword)) {
       return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
     }
     return NextResponse.json({ notifications: store.notifications.filter((entry) => entry.audience === "admin") });

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
+import { isAdminPasswordValid } from "@/lib/admin";
 import { readStore } from "@/lib/store";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const adminPassword = url.searchParams.get("adminPassword");
 
-  if (adminPassword !== "admin123") {
+  if (!isAdminPasswordValid(adminPassword)) {
     return NextResponse.json({ error: "Admin password is incorrect." }, { status: 401 });
   }
 

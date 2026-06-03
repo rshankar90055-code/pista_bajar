@@ -5,12 +5,28 @@ export type ProductCategory =
   | "dates"
   | "raisins"
   | "walnuts"
-  | "figs";
+  | "figs"
+  | "saffron"
+  | "seeds"
+  | "snacks"
+  | "gifts"
+  | "chocolates";
 
 export interface User {
+  name?: string;
   phone: string;
   otpVerified: boolean;
   createdAt: string;
+}
+
+export interface CouponUsage {
+  id: string;
+  phone: string;
+  offerId: string;
+  discountCode?: string;
+  orderId: string;
+  savedAmount: number;
+  usedAt: string;
 }
 
 export interface Product {
@@ -30,7 +46,6 @@ export interface Address {
   addressLine: string;
   city: string;
   pinCode: string;
-  landmark: string;
 }
 
 export interface SavedAddress extends Address {
@@ -51,10 +66,12 @@ export interface OrderItem {
 }
 
 export type OrderStatus = "new" | "cancelled" | "shiprocket_pickup" | "delivered";
-export type PaymentMethod = "cash_on_delivery" | "card" | "upi";
+export type PaymentMethod = "cash_on_delivery" | "upi";
+export type UpiApp = "gpay" | "phonepe";
 
 export interface Order {
   id: string;
+  userName?: string;
   userPhone: string;
   address: Address;
   items: OrderItem[];
@@ -63,12 +80,17 @@ export interface Order {
   offerTitle?: string;
   totalAmount: number;
   paymentMethod?: PaymentMethod;
+  upiApp?: UpiApp;
   paymentStatus?: "pending" | "paid";
   deliveryOtp?: string;
   status: OrderStatus;
   timestamp: string;
   claimedOfferId?: string;
   discountCode?: string;
+  isGift?: boolean;
+  giftNote?: string;
+  giftWrap?: boolean;
+  upiScreenshot?: string;
 }
 
 export interface Offer {
@@ -92,7 +114,9 @@ export interface AppNotification {
   phone?: string;
   title: string;
   message: string;
-  type: "order_placed" | "order_cancelled" | "delivery_otp" | "offer" | "deal";
+  type: "order_placed" | "order_cancelled" | "delivery_otp" | "offer" | "deal" | "product";
+  icon?: string;
+  deepLink?: string;
   createdAt: string;
   read: boolean;
 }
@@ -103,6 +127,7 @@ export interface StoreData {
   products: Product[];
   orders: Order[];
   offers: Offer[];
+  couponUsages: CouponUsage[];
   notifications: AppNotification[];
   otps: Record<string, string>;
 }
