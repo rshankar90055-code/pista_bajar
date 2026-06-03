@@ -34,12 +34,16 @@ export interface Product {
   name: string;
   imageUrl: string;
   videoUrl?: string;
-  pricePerKg: number;
+  price250g: number;
+  price500g: number;
+  price1kg: number;
+  pricePerKg: number; // for backward compatibility, maps to price1kg
   category: ProductCategory;
   description: string;
   stockKg?: number;
   soldOut?: boolean;
   featured?: boolean;
+  rating?: number;
 }
 
 export interface Address {
@@ -60,8 +64,10 @@ export interface SavedAddress extends Address {
 export interface OrderItem {
   productId: string;
   name: string;
-  quantityKg: number;
-  pricePerKg: number;
+  quantityKg: number; // for backward compatibility
+  pricePerKg: number; // for backward compatibility
+  selectedWeight: string; // "250g" | "500g" | "1kg"
+  quantity: number; // pack quantity
   lineTotal: number;
 }
 

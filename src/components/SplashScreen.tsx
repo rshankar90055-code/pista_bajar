@@ -11,11 +11,11 @@ interface SplashScreenProps {
   onComplete?: () => void;
 }
 
-const splashSessionKey = "pistabajaar_splash_seen";
+const splashSessionKey = "pistabajar_splash_seen";
 
 export default function SplashScreen({
-  logoSrc = "/pistabajaar-logo.png",
-  brandName = "Pista Bajaar",
+  logoSrc = "/pistabajar-logo.png",
+  brandName = "Pista Bajar",
   tagline = "Luxury Dry Fruits Delivered in Minutes",
   force = false,
   onComplete
@@ -63,7 +63,7 @@ export default function SplashScreen({
     <AnimatePresence>
       {isVisible ? (
         <motion.div
-          aria-label="Opening Pista Bajaar"
+          aria-label="Opening Pista Bajar"
           onClick={handleSkip}
           className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_42%,rgba(223,177,91,0.25),transparent_32%),linear-gradient(145deg,#1c130f_0%,#120e0d_46%,#090706_100%)] px-6 text-[#fbf9f5] cursor-pointer"
           initial={{ opacity: 1 }}

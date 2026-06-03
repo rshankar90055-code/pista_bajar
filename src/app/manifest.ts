@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Pista Bajaar",
-    short_name: "Pista Bajaar",
+    name: "Pista Bajar",
+    short_name: "Pista Bajar",
     description: "Luxury Indian dry fruits and organic snacks. Enjoy speed delivery, custom greeting gift boxes, and pure ingredients.",
     start_url: "/",
     scope: "/",
@@ -13,13 +13,13 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     icons: [
       {
-        src: "/pistabajaar-logo.png",
+        src: "/pistabajar-logo.png",
         sizes: "192x192",
         type: "image/png",
         purpose: "any"
       },
       {
-        src: "/pistabajaar-logo.png",
+        src: "/pistabajar-logo.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable"
@@ -30,16 +30,16 @@ export default function manifest(): MetadataRoute.Manifest {
       {
         name: "Cart",
         short_name: "Cart",
-        description: "Open your Pista Bajaar cart.",
+        description: "Open your Pista Bajar cart.",
         url: "/cart",
-        icons: [{ src: "/pistabajaar-logo.png", sizes: "192x192", type: "image/png" }]
+        icons: [{ src: "/pistabajar-logo.png", sizes: "192x192", type: "image/png" }]
       },
       {
         name: "Offers",
         short_name: "Offers",
         description: "View active luxury dry fruit discounts and offers.",
         url: "/coupons",
-        icons: [{ src: "/pistabajaar-logo.png", sizes: "192x192", type: "image/png" }]
+        icons: [{ src: "/pistabajar-logo.png", sizes: "192x192", type: "image/png" }]
       }
     ]
   };

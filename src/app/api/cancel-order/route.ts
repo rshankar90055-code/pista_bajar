@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     });
     await sendWhatsAppMessage({
       phone: cleanPhone,
-      title: "Pista Bajaar order cancelled",
+      title: "Pista Bajar order cancelled",
       message: `Your order ${orderId.slice(0, 8)} has been cancelled successfully.`,
       deepLink: "/orders"
     });

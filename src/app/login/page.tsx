@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [isSplashDone, setIsSplashDone] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem("pistabajaar_phone")) {
+    if (localStorage.getItem("pistabajar_phone")) {
       window.location.href = "/";
     }
   }, []);
@@ -27,9 +27,9 @@ export default function LoginPage() {
       return;
     }
     
-    localStorage.setItem("pistabajaar_phone", phone);
+    localStorage.setItem("pistabajar_phone", phone);
     const mockName = name || (phone.includes("@") ? phone.split("@")[0] : "Customer");
-    localStorage.setItem("pistabajaar_name", mockName);
+    localStorage.setItem("pistabajar_name", mockName);
     window.location.href = "/";
   }
 
@@ -47,14 +47,14 @@ export default function LoginPage() {
       return;
     }
     
-    localStorage.setItem("pistabajaar_phone", phone);
-    localStorage.setItem("pistabajaar_name", name);
+    localStorage.setItem("pistabajar_phone", phone);
+    localStorage.setItem("pistabajar_name", name);
     window.location.href = "/";
   }
 
   function handleGoogleLogin() {
-    localStorage.setItem("pistabajaar_phone", "google-user");
-    localStorage.setItem("pistabajaar_name", "Google User");
+    localStorage.setItem("pistabajar_phone", "google-user");
+    localStorage.setItem("pistabajar_name", "Google User");
     window.location.href = "/";
   }
 
@@ -76,14 +76,14 @@ export default function LoginPage() {
           boxSizing: 'border-box'
         }}>
           <div className="brand login-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center', marginBottom: '16px' }}>
-            <img src="/pistabajaar-logo.png" alt="Pista Bajaar" style={{ height: '48px', width: '48px', objectFit: 'contain' }} />
-            <span style={{ fontSize: '1.8rem', fontWeight: '950', letterSpacing: '0.04em', color: 'transparent', backgroundImage: 'linear-gradient(to right, #ffffff, #dfb15b)', backgroundClip: 'text', WebkitBackgroundClip: 'text' }}>Pista Bajaar</span>
+            <img src="/pistabajar-logo.png" alt="Pista Bajar" style={{ height: '48px', width: '48px', objectFit: 'contain' }} />
+            <span style={{ fontSize: '1.8rem', fontWeight: '950', letterSpacing: '0.04em', color: 'transparent', backgroundImage: 'linear-gradient(to right, #ffffff, #dfb15b)', backgroundClip: 'text', WebkitBackgroundClip: 'text' }}>Pista Bajar</span>
           </div>
           <h1 style={{ fontSize: '1.25rem', fontWeight: '800', textAlign: 'center', color: '#faf7f2', margin: '0 0 6px' }}>
             {isSignUp ? "Create Account" : "Login"}
           </h1>
           <p style={{ fontSize: '0.78rem', color: '#a5948b', textAlign: 'center', marginBottom: '24px', fontWeight: '500' }}>
-            {isSignUp ? "Sign up to savor luxury organic dry fruits." : "Welcome back to Pista Bajaar."}
+            {isSignUp ? "Sign up to savor luxury organic dry fruits." : "Welcome back to Pista Bajar."}
           </p>
 
           <div className="form" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

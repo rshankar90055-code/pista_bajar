@@ -10,7 +10,7 @@ interface NotifyUsersInput {
   deepLink?: string;
 }
 
-const defaultIcon = process.env.NEXT_PUBLIC_NOTIFICATION_ICON ?? "/pistabajaar-logo.png";
+const defaultIcon = process.env.NEXT_PUBLIC_NOTIFICATION_ICON ?? "/pistabajar-logo.png";
 
 export async function notifyUsers(input: NotifyUsersInput) {
   const notification = await addNotification({

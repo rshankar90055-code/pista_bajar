@@ -10,7 +10,7 @@ export default function OrdersPage() {
   const [cancellingOrderId, setCancellingOrderId] = useState("");
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
+    const savedPhone = localStorage.getItem("pistabajar_phone") ?? "";
     setPhone(savedPhone);
     if (savedPhone) void loadOrders(savedPhone);
   }, []);
@@ -55,9 +55,9 @@ export default function OrdersPage() {
       <header className="topbar">
         <a className="brand" href="/">
           <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
-            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img src="/pistabajar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </span>
-          <span>Pista Bajaar</span>
+          <span>Pista Bajar</span>
         </a>
         <a className="button ghost" href="/">
           Shop

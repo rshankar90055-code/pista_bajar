@@ -7,7 +7,13 @@ export interface OrderInput {
   name?: string;
   phone?: string;
   address?: Address;
-  items?: Array<{ productId: string; quantityKg: number }>;
+  items?: Array<{
+    productId: string;
+    quantityKg?: number;
+    selectedWeight?: string;
+    quantity?: number;
+    lineTotal?: number;
+  }>;
   claimedOfferId?: string;
   discountCode?: string;
   paymentMethod?: PaymentMethod;
@@ -49,18 +55,30 @@ export async function prepareOrder(input: OrderInput): Promise<{ prepared?: Prep
     if (!product) return { error: "One item in your cart is no longer available. Please refresh your cart." };
     if (product.soldOut || product.stockKg === 0) return { error: `${product.name} is currently sold out.` };
 
-    const quantityKg = Math.max(0.25, Number(item.quantityKg));
-    if (!Number.isFinite(quantityKg)) return { error: "Cart quantity is invalid." };
+    const selectedWeight = item.selectedWeight || "1kg";
+    const quantity = item.quantity ?? (item.quantityKg ? Math.round(item.quantityKg / (selectedWeight === "250g" ? 0.25 : selectedWeight === "500g" ? 0.5 : 1)) : 1);
+    
+    let quantityKg = quantity;
+    if (selectedWeight === "250g") quantityKg = quantity * 0.25;
+    else if (selectedWeight === "500g") quantityKg = quantity * 0.5;
+
+    if (!Number.isFinite(quantity) || quantity <= 0) return { error: "Cart quantity is invalid." };
     if (product.stockKg !== undefined && quantityKg > product.stockKg) {
       return { error: `Only ${product.stockKg}kg of ${product.name} is available.` };
     }
+
+    let unitPrice = product.price1kg;
+    if (selectedWeight === "250g") unitPrice = product.price250g;
+    else if (selectedWeight === "500g") unitPrice = product.price500g;
 
     orderItems.push({
       productId: product.id,
       name: product.name,
       quantityKg,
-      pricePerKg: product.pricePerKg,
-      lineTotal: Math.round(product.pricePerKg * quantityKg)
+      pricePerKg: product.price1kg, // backward compatibility
+      selectedWeight,
+      quantity,
+      lineTotal: Math.round(unitPrice * quantity)
     });
   }
 
@@ -73,7 +91,21 @@ export async function prepareOrder(input: OrderInput): Promise<{ prepared?: Prep
   if (claimedOffer && (await hasUsedCoupon(cleanPhone, claimedOffer.id, input.discountCode))) {
     return { error: "This coupon has already been used on your account." };
   }
-  const discountAmount = input.discountCode ? Math.round(subtotal * 0.1) : 0;
+
+  let discountPercent = 0.15; // default 15% discount for website/app
+  if (claimedOffer) {
+    const titleMatch = claimedOffer.title.match(/(\d+)%/);
+    if (titleMatch) {
+      discountPercent = parseInt(titleMatch[1], 10) / 100;
+    } else {
+      const descMatch = claimedOffer.description.match(/(\d+)%/);
+      if (descMatch) {
+        discountPercent = parseInt(descMatch[1], 10) / 100;
+      }
+    }
+  }
+
+  const discountAmount = claimedOffer ? Math.round(subtotal * discountPercent) : 0;
   const codFee = input.paymentMethod === "cash_on_delivery" ? cashOnDeliveryFee : 0;
   
   // Calculate Festive Gift Wrapping Fee (₹49) if gift & wrap enabled
@@ -156,7 +188,7 @@ export async function createStoredOrder(
   });
   await sendWhatsAppMessage({
     phone: order.userPhone,
-    title: "Pista Bajaar order placed",
+    title: "Pista Bajar order placed",
     message: `Your order for ₹${order.totalAmount} is confirmed. Delivery OTP: ${deliveryOtp}.`,
     deepLink: "/orders"
   });

@@ -26,7 +26,16 @@ export async function POST(request: Request) {
   if (typeof body.videoUrl === "string") updates.videoUrl = body.videoUrl;
   if (typeof body.description === "string") updates.description = body.description;
   if (body.category) updates.category = body.category;
-  if (body.pricePerKg !== undefined) updates.pricePerKg = Number(body.pricePerKg);
+  if (body.pricePerKg !== undefined) {
+    updates.pricePerKg = Number(body.pricePerKg);
+    updates.price1kg = Number(body.pricePerKg);
+  }
+  if (body.price250g !== undefined) updates.price250g = Number(body.price250g);
+  if (body.price500g !== undefined) updates.price500g = Number(body.price500g);
+  if (body.price1kg !== undefined) {
+    updates.price1kg = Number(body.price1kg);
+    updates.pricePerKg = Number(body.price1kg);
+  }
   if (body.stockKg !== undefined) updates.stockKg = Math.max(0, Number(body.stockKg));
   if (body.soldOut !== undefined) updates.soldOut = Boolean(body.soldOut);
   if (body.featured !== undefined) updates.featured = Boolean(body.featured);

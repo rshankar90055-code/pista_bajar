@@ -8,7 +8,7 @@ export async function GET() {
     adminPassword: Boolean(getAdminPassword()),
     msg91AuthKey: Boolean(process.env.MSG91_AUTH_KEY),
     msg91TemplateId: Boolean(process.env.MSG91_TEMPLATE_ID),
-    upiId: Boolean(process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID),
+    upiId: Boolean(process.env.NEXT_PUBLIC_PISTABAJAR_UPI_ID || process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID),
     storage: false
   };
   const optionalChecks = {
@@ -33,7 +33,7 @@ export async function GET() {
     checks,
     optionalChecks,
     missing,
-    requiredEnv: ["ADMIN_PASSWORD", "MSG91_AUTH_KEY", "MSG91_TEMPLATE_ID", "NEXT_PUBLIC_PISTABAJAAR_UPI_ID"],
+    requiredEnv: ["ADMIN_PASSWORD", "MSG91_AUTH_KEY", "MSG91_TEMPLATE_ID", "NEXT_PUBLIC_PISTABAJAR_UPI_ID"],
     optionalEnv: [
       "MSG91_COUNTRY_CODE",
       "MSG91_OTP_LENGTH",

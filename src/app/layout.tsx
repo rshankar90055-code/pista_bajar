@@ -15,26 +15,26 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Pista Bajaar | Luxury Indian Dry Fruits & Organic Wellness",
+  title: "Pista Bajar | Luxury Indian Dry Fruits & Organic Wellness",
   description: "Savor premium hand-sorted almonds, cashews, Kashmir saffron, rich organic nuts, and healthy trail mixes. Delivered fast in luxurious packaging.",
   manifest: "/manifest.webmanifest",
-  applicationName: "Pista Bajaar",
-  metadataBase: new URL("https://pistabajaar.vercel.app"),
+  applicationName: "Pista Bajar",
+  metadataBase: new URL("https://pistabajar.vercel.app"),
   openGraph: {
-    title: "Pista Bajaar | Luxury Indian Dry Fruits & Organic Wellness",
+    title: "Pista Bajar | Luxury Indian Dry Fruits & Organic Wellness",
     description: "Savor premium hand-sorted almonds, cashews, Kashmir saffron, rich organic nuts, and healthy trail mixes. Delivered fast in luxurious packaging.",
-    siteName: "Pista Bajaar",
+    siteName: "Pista Bajar",
     type: "website",
-    images: ["/pistabajaar-logo.png"]
+    images: ["/pistabajar-logo.png"]
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Pista Bajaar"
+    title: "Pista Bajar"
   },
   icons: {
-    icon: "/pistabajaar-logo.png",
-    apple: "/pistabajaar-logo.png"
+    icon: "/pistabajar-logo.png",
+    apple: "/pistabajar-logo.png"
   }
 };
 
@@ -46,14 +46,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={outfit.className}>
-        <div className="simulator-page-wrapper">
-          <div className="desktop-simulator-frame">
-            <div className="desktop-dynamic-island" />
-            <div className="desktop-simulator-screen">
-              {children}
-            </div>
-            <div className="desktop-home-indicator" />
-          </div>
+        <div className="min-h-screen bg-[#FAF7F2]">
+          {children}
         </div>
         <PwaRegister />
       </body>

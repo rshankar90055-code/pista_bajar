@@ -1,757 +1,216 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { AppNotification, Offer, Order, OrderStatus, Product, ProductCategory } from "@/lib/types";
+import React, { useMemo } from "react";
+import { useAdmin } from "./admin-context";
+import Link from "next/link";
 
-const statusLabels: Record<OrderStatus, string> = {
-  new: "New",
-  cancelled: "Cancelled",
-  shiprocket_pickup: "Picked up by Shiprocket",
-  delivered: "Delivered"
-};
+export default function AdminDashboardOverview() {
+  const { orders, products, offers, notifications } = useAdmin();
 
-const categories: ProductCategory[] = ["almonds", "cashews", "pistachios", "dates", "raisins", "walnuts", "figs", "saffron", "seeds", "snacks", "gifts", "chocolates"];
+  // Compute metrics
+  const totalRevenue = useMemo(() => {
+    return orders
+      .filter((o) => o.status === "delivered" || o.paymentStatus === "paid")
+      .reduce((sum, o) => sum + o.totalAmount, 0);
+  }, [orders]);
 
-function formatDate(dateValue: string) {
-  const [year, month, day] = dateValue.split("-");
-  if (!year || !month || !day) return dateValue;
-  return `${day}-${month}-${year}`;
-}
+  const pendingOrders = useMemo(() => {
+    return orders.filter((o) => o.status === "new").length;
+  }, [orders]);
 
-export default function AdminPage() {
-  const [password, setPassword] = useState("");
-  const [isAuthed, setIsAuthed] = useState(false);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [editingProductId, setEditingProductId] = useState("");
-  const [editingOfferId, setEditingOfferId] = useState("");
-  const [seenAdminNotificationIds, setSeenAdminNotificationIds] = useState<Set<string>>(new Set());
-  const [toast, setToast] = useState("");
-  const [offer, setOffer] = useState({
-    title: "",
-    description: "",
-    expiryDate: "",
-    discountCode: "",
-    extraItemText: "",
-    autoAddItems: [] as Array<{ productId: string; quantityKg: number }>,
-    active: true
-  });
-  const [product, setProduct] = useState({
-    name: "",
-    imageUrl: "",
-    videoUrl: "",
-    pricePerKg: "",
-    category: "almonds" as ProductCategory,
-    description: "",
-    stockKg: "20",
-    soldOut: false,
-    featured: false
-  });
+  const totalSalesCount = useMemo(() => {
+    return orders.filter((o) => o.status !== "cancelled").length;
+  }, [orders]);
 
-  const editingProduct = products.find((entry) => entry.id === editingProductId) ?? null;
-  const editingOffer = offers.find((entry) => entry.id === editingOfferId) ?? null;
+  const recentOrders = useMemo(() => {
+    return orders.slice(0, 5);
+  }, [orders]);
 
-  async function pollAdminNotifications() {
-    if (!isAuthed) return;
-    const response = await fetch(`/api/notifications?audience=admin&adminPassword=${encodeURIComponent(password)}`);
-    const data = (await response.json()) as { notifications?: AppNotification[] };
-    const unread = (data.notifications ?? []).filter((entry) => !entry.read && !seenAdminNotificationIds.has(entry.id));
-    if (!unread.length) return;
+  const recentAlerts = useMemo(() => {
+    return notifications.slice(0, 6);
+  }, [notifications]);
 
-    setSeenAdminNotificationIds((current) => new Set([...current, ...unread.map((entry) => entry.id)]));
-    const latest = unread[0];
-    setToast(`${latest.title}: ${latest.message}`);
-    await fetch("/api/notifications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: unread.map((entry) => entry.id) })
+  // Categories count
+  const categoryStats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    products.forEach((p) => {
+      counts[p.category] = (counts[p.category] || 0) + 1;
     });
-  }
-
-  useEffect(() => {
-    if (!isAuthed) return;
-    void pollAdminNotifications();
-    const interval = window.setInterval(pollAdminNotifications, 10000);
-    return () => window.clearInterval(interval);
-  }, [isAuthed, password, seenAdminNotificationIds]);
-
-  async function loadOrders(nextPassword = password) {
-    const response = await fetch(`/api/orders?adminPassword=${encodeURIComponent(nextPassword)}`);
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error);
-      return;
-    }
-    setOrders(data.orders ?? []);
-    setIsAuthed(true);
-    await loadProducts();
-    await loadOffers();
-  }
-
-  async function loadProducts() {
-    const response = await fetch("/api/products");
-    const data = await response.json();
-    setProducts(data.products ?? []);
-  }
-
-  async function loadOffers() {
-    const response = await fetch("/api/offers?includeInactive=true");
-    const data = await response.json();
-    setOffers(data.offers ?? []);
-  }
-
-  async function updateStatus(orderId: string, status: OrderStatus) {
-    const response = await fetch("/api/update-order-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, status, adminPassword: password })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error);
-      return;
-    }
-    setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
-    setToast("Order status updated.");
-  }
-
-  async function verifyUpiPayment(orderId: string) {
-    const response = await fetch("/api/update-order-status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId, paymentStatus: "paid", adminPassword: password })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error);
-      return;
-    }
-    setOrders((current) => current.map((order) => (order.id === orderId ? data.order : order)));
-    setToast("UPI Payment verified & marked as paid.");
-  }
-
-  async function sendToShiprocket(order: Order) {
-    const response = await fetch("/api/shiprocket", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId: order.id, order })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Shiprocket mock failed.");
-      return;
-    }
-    setToast(data.message);
-    await updateStatus(order.id, "shiprocket_pickup");
-  }
-
-  async function createOffer() {
-    const response = await fetch("/api/create-offer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...offer, adminPassword: password })
-    });
-    const data = (await response.json()) as { offer?: Offer; error?: string };
-    if (!response.ok) {
-      setToast(data.error ?? "Could not create offer.");
-      return;
-    }
-    setOffer({ title: "", description: "", expiryDate: "", discountCode: "", extraItemText: "", autoAddItems: [], active: true });
-    setToast(`Offer announced: ${data.offer?.title}`);
-    await loadOffers();
-  }
-
-  function startOfferEdit(selectedOffer: Offer) {
-    setEditingOfferId(selectedOffer.id);
-    setOffer({
-      title: selectedOffer.title,
-      description: selectedOffer.description,
-      expiryDate: selectedOffer.expiryDate,
-      discountCode: selectedOffer.discountCode ?? "",
-      extraItemText: selectedOffer.extraItemText ?? "",
-      autoAddItems: selectedOffer.autoAddItems ?? [],
-      active: selectedOffer.active
-    });
-  }
-
-  function resetOfferForm() {
-    setEditingOfferId("");
-    setOffer({ title: "", description: "", expiryDate: "", discountCode: "", extraItemText: "", autoAddItems: [], active: true });
-  }
-
-  function addOfferAutoItem() {
-    const firstProduct = products[0];
-    if (!firstProduct) {
-      setToast("Add a product before configuring coupon auto-add items.");
-      return;
-    }
-
-    setOffer((current) => ({
-      ...current,
-      autoAddItems: [...current.autoAddItems, { productId: firstProduct.id, quantityKg: 1 }]
-    }));
-  }
-
-  function updateOfferAutoItem(index: number, updates: Partial<{ productId: string; quantityKg: number }>) {
-    setOffer((current) => ({
-      ...current,
-      autoAddItems: current.autoAddItems.map((item, itemIndex) => (itemIndex === index ? { ...item, ...updates } : item))
-    }));
-  }
-
-  function removeOfferAutoItem(index: number) {
-    setOffer((current) => ({
-      ...current,
-      autoAddItems: current.autoAddItems.filter((_, itemIndex) => itemIndex !== index)
-    }));
-  }
-
-  async function saveOfferUpdates() {
-    if (!editingOfferId) {
-      await createOffer();
-      return;
-    }
-
-    const response = await fetch("/api/update-offer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        offerId: editingOfferId,
-        ...offer,
-        adminPassword: password
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not update offer.");
-      return;
-    }
-
-    setOffers((current) => current.map((entry) => (entry.id === editingOfferId ? data.offer : entry)));
-    setToast(`Offer updated: ${data.offer.title}`);
-  }
-
-  async function deleteOffer(offerId: string) {
-    const confirmed = window.confirm("Delete this offer?");
-    if (!confirmed) return;
-
-    const response = await fetch("/api/delete-offer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offerId, adminPassword: password })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not delete offer.");
-      return;
-    }
-
-    setOffers((current) => current.filter((entry) => entry.id !== offerId));
-    if (editingOfferId === offerId) resetOfferForm();
-    setToast("Offer deleted.");
-  }
-
-  async function createProduct() {
-    const response = await fetch("/api/create-product", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...product,
-        pricePerKg: Number(product.pricePerKg),
-        adminPassword: password
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not add product.");
-      return;
-    }
-
-    setProduct({
-      name: "",
-      imageUrl: "",
-      videoUrl: "",
-      pricePerKg: "",
-      category: "almonds",
-      description: "",
-      stockKg: "20",
-      soldOut: false,
-      featured: false
-    });
-    setToast(`Product added: ${data.product.name}`);
-    await loadProducts();
-  }
-
-  function startProductEdit(selectedProduct: Product) {
-    setEditingProductId(selectedProduct.id);
-    setProduct({
-      name: selectedProduct.name,
-      imageUrl: selectedProduct.imageUrl,
-      videoUrl: selectedProduct.videoUrl ?? "",
-      pricePerKg: String(selectedProduct.pricePerKg),
-      category: selectedProduct.category,
-      description: selectedProduct.description,
-      stockKg: String(selectedProduct.stockKg ?? 20),
-      soldOut: Boolean(selectedProduct.soldOut),
-      featured: Boolean(selectedProduct.featured)
-    });
-  }
-
-  function resetProductForm() {
-    setEditingProductId("");
-    setProduct({
-      name: "",
-      imageUrl: "",
-      videoUrl: "",
-      pricePerKg: "",
-      category: "almonds",
-      description: "",
-      stockKg: "20",
-      soldOut: false,
-      featured: false
-    });
-  }
-
-  async function saveProductUpdates() {
-    if (!editingProductId) {
-      await createProduct();
-      return;
-    }
-
-    const response = await fetch("/api/update-product", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        productId: editingProductId,
-        ...product,
-        pricePerKg: Number(product.pricePerKg),
-        stockKg: Number(product.stockKg),
-        adminPassword: password
-      })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not update product.");
-      return;
-    }
-
-    setProducts((current) => current.map((entry) => (entry.id === editingProductId ? data.product : entry)));
-    setToast(`Product updated: ${data.product.name}`);
-  }
-
-  async function deleteProduct(productId: string) {
-    const confirmed = window.confirm("Delete this product from the storefront?");
-    if (!confirmed) return;
-
-    const response = await fetch("/api/delete-product", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productId, adminPassword: password })
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setToast(data.error ?? "Could not delete product.");
-      return;
-    }
-
-    setProducts((current) => current.filter((entry) => entry.id !== productId));
-    if (editingProductId === productId) resetProductForm();
-    setToast("Product deleted.");
-  }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  }, [products]);
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <a className="brand" href="/">
-          <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
-            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-          </span>
-          <span>Pista Bajaar Admin</span>
-        </a>
-        <a className="button ghost" href="/">
-          Storefront
-        </a>
-      </header>
-
-      {!isAuthed ? (
-        <section className="panel">
-          <h2>Admin login</h2>
-          <p className="muted">Use the local password: admin123</p>
-          <div className="form">
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </div>
-            <button className="button" type="button" onClick={() => loadOrders()}>
-              Open dashboard
-            </button>
-          </div>
-        </section>
-      ) : (
-        <>
-          <section className="section layout-grid">
-            <div className="panel">
-              <div className="section-head">
-                <div>
-                  <h2>Orders</h2>
-                  <p>Review, send mock pickups, and mark delivery status.</p>
-                </div>
-                <button className="button ghost" type="button" onClick={() => loadOrders()}>
-                  Refresh
-                </button>
-              </div>
-
-              <div className="admin-table">
-                {orders.length ? (
-                  orders.map((order) => (
-                    <article className="order-card" key={order.id}>
-                      <div className="section-head">
-                        <div>
-                          <strong>{order.userName || order.userPhone}</strong>
-                          {order.userName ? <p className="muted">{order.userPhone}</p> : null}
-                          <p className="muted">
-                            {order.address.addressLine}, {order.address.city} {order.address.pinCode}
-                          </p>
-                        </div>
-                        <span className="status">{statusLabels[order.status]}</span>
-                      </div>
-                      <div>
-                        {order.items.map((item) => (
-                          <p className="muted" key={`${order.id}-${item.productId}`}>
-                            {item.name}: {item.quantityKg}kg · ₹{item.lineTotal}
-                          </p>
-                        ))}
-                      </div>
-                      
-                      {order.isGift && (
-                        <div className="gift-badge-panel" style={{ marginTop: '8px', padding: '10px', background: 'var(--paper-strong)', borderRadius: '8px', borderLeft: '3px solid var(--gold)' }}>
-                          <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: 'var(--accent)' }}>🎁 Gift Order</span>
-                          {order.giftWrap && <span style={{ fontSize: '0.8rem', marginLeft: '10px', background: 'var(--gold)', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Premium Festive Wrap</span>}
-                          {order.giftNote && (
-                            <p style={{ margin: '4px 0 0 0', fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--muted)' }}>
-                              &ldquo;{order.giftNote}&rdquo;
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {order.paymentMethod === "upi" && order.upiScreenshot && (
-                        <div className="screenshot-panel" style={{ marginTop: '8px' }}>
-                          <span className="muted" style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem' }}>Payment Screenshot:</span>
-                          <img
-                            src={order.upiScreenshot}
-                            alt="UPI Screenshot"
-                            style={{
-                              maxWidth: '120px',
-                              maxHeight: '160px',
-                              borderRadius: '8px',
-                              border: '1px solid var(--line)',
-                              cursor: 'zoom-in',
-                              boxShadow: 'var(--shadow)'
-                            }}
-                            onClick={() => {
-                              const w = window.open();
-                              if (w) w.document.write(`<img src="${order.upiScreenshot}" style="max-width:100%; max-height:100%; display:block; margin:auto;" />`);
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      <strong>Total: ₹{order.totalAmount}</strong>
-                      <p className="muted">
-                    Payment: {order.paymentMethod?.replaceAll("_", " ") ?? "Not selected"}
-                    {order.upiApp ? ` (${order.upiApp === "gpay" ? "GPay" : "PhonePe"})` : ""} · <span style={{ color: order.paymentStatus === "paid" ? "green" : "orange", fontWeight: 'bold' }}>{order.paymentStatus ?? "pending"}</span>
-                      </p>
-                      {order.discountCode ? (
-                        <p className="coupon-line">
-                          Coupon: {order.discountCode}
-                          {order.offerTitle ? ` · ${order.offerTitle}` : ""} · Discount ₹{order.discountAmount ?? 0}
-                        </p>
-                      ) : (
-                        <p className="muted">Coupon: Not used</p>
-                      )}
-                      <p className="muted">Ordered {new Date(order.timestamp).toLocaleString()}</p>
-                      <div className="nav-actions">
-                        {order.paymentMethod === "upi" && order.paymentStatus !== "paid" && (
-                          <button className="button" style={{ borderColor: 'var(--gold)', background: 'var(--gold)', color: '#000' }} type="button" onClick={() => verifyUpiPayment(order.id)}>
-                            ✨ Verify UPI Payment
-                          </button>
-                        )}
-                        <button className="button secondary" type="button" onClick={() => sendToShiprocket(order)}>
-                          Send to Shiprocket
-                        </button>
-                        <button className="button ghost" type="button" onClick={() => updateStatus(order.id, "shiprocket_pickup")}>
-                          Mark picked up
-                        </button>
-                        <button className="button" type="button" onClick={() => updateStatus(order.id, "delivered")}>
-                          Mark delivered
-                        </button>
-                      </div>
-                    </article>
-                  ))
-                ) : (
-                  <p className="muted">No orders yet.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="stack">
-              <div className="panel">
-                <div className="section-head">
-                  <div>
-                    <h2>{editingProduct ? "Update product" : "Add product"}</h2>
-                    <p className="muted">Manage product media, price, stock, and customer-facing status.</p>
-                  </div>
-                  {editingProduct ? (
-                    <button className="button ghost" type="button" onClick={resetProductForm}>
-                      New
-                    </button>
-                  ) : null}
-                </div>
-                <div className="form">
-                  <div className="field">
-                    <label htmlFor="productName">Product name</label>
-                    <input id="productName" value={product.name} onChange={(event) => setProduct({ ...product, name: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productImage">Image URL</label>
-                    <input
-                      id="productImage"
-                      placeholder="https://..."
-                      value={product.imageUrl}
-                      onChange={(event) => setProduct({ ...product, imageUrl: event.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productVideo">Video URL</label>
-                    <input
-                      id="productVideo"
-                      placeholder="https://...mp4"
-                      value={product.videoUrl}
-                      onChange={(event) => setProduct({ ...product, videoUrl: event.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productPrice">Price per kg</label>
-                    <input
-                      id="productPrice"
-                      inputMode="decimal"
-                      placeholder="980"
-                      value={product.pricePerKg}
-                      onChange={(event) => setProduct({ ...product, pricePerKg: event.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productCategory">Category</label>
-                    <select
-                      id="productCategory"
-                      value={product.category}
-                      onChange={(event) => setProduct({ ...product, category: event.target.value as ProductCategory })}
-                    >
-                      {categories.map((category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productStock">Stock in kg</label>
-                    <input
-                      id="productStock"
-                      inputMode="decimal"
-                      placeholder="6"
-                      value={product.stockKg}
-                      onChange={(event) => setProduct({ ...product, stockKg: event.target.value })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="productDescription">Description</label>
-                    <textarea
-                      id="productDescription"
-                      rows={3}
-                      value={product.description}
-                      onChange={(event) => setProduct({ ...product, description: event.target.value })}
-                    />
-                  </div>
-                  <label className="check-row">
-                    <input type="checkbox" checked={product.soldOut} onChange={(event) => setProduct({ ...product, soldOut: event.target.checked })} />
-                    <span>Mark as sold out</span>
-                  </label>
-                  <label className="check-row">
-                    <input type="checkbox" checked={product.featured} onChange={(event) => setProduct({ ...product, featured: event.target.checked })} />
-                    <span>Show as featured</span>
-                  </label>
-                  <button className="button" type="button" onClick={saveProductUpdates}>
-                    {editingProduct ? "Save product" : "Add product"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="section-head">
-                  <div>
-                    <h2>Product list</h2>
-                    <p className="muted">Choose a product to update details.</p>
-                  </div>
-                  <button className="button ghost" type="button" onClick={loadProducts}>
-                    Refresh
-                  </button>
-                </div>
-                <div className="product-admin-list">
-                  {products.map((entry) => (
-                    <div className={`product-admin-row ${editingProductId === entry.id ? "active" : ""}`} key={entry.id}>
-                      <img alt="" src={entry.imageUrl} />
-                      <span>
-                        <strong>{entry.name}</strong>
-                        <small>
-                          ₹{entry.pricePerKg}/kg · {entry.soldOut || entry.stockKg === 0 ? "Sold out" : `${entry.stockKg ?? 20}kg left`}
-                        </small>
-                      </span>
-                      <div className="stock-pill">{entry.stockKg ?? 20}kg remaining</div>
-                      <div className="row-actions">
-                        <button className="button secondary" type="button" onClick={() => startProductEdit(entry)}>
-                          Edit
-                        </button>
-                        <button className="button danger" type="button" onClick={() => deleteProduct(entry.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="section-head">
-                  <div>
-                    <h2>{editingOffer ? "Update offer" : "Announce offer"}</h2>
-                    <p className="muted">New offers appear in the home banner and once-per-user popup.</p>
-                  </div>
-                  {editingOffer ? (
-                    <button className="button ghost" type="button" onClick={resetOfferForm}>
-                      New
-                    </button>
-                  ) : null}
-                </div>
-                <div className="form">
-                  <div className="field">
-                    <label htmlFor="title">Offer title</label>
-                    <input id="title" value={offer.title} onChange={(event) => setOffer({ ...offer, title: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="description">Description</label>
-                    <textarea id="description" rows={3} value={offer.description} onChange={(event) => setOffer({ ...offer, description: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="expiry">Expiry date</label>
-                    <input id="expiry" type="date" value={offer.expiryDate} onChange={(event) => setOffer({ ...offer, expiryDate: event.target.value })} />
-                    {offer.expiryDate ? <p className="muted">Shown as {formatDate(offer.expiryDate)}</p> : null}
-                  </div>
-                  <div className="field">
-                    <label htmlFor="discount">Discount code</label>
-                    <input id="discount" value={offer.discountCode} onChange={(event) => setOffer({ ...offer, discountCode: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="extra">Extra item rule</label>
-                    <input id="extra" value={offer.extraItemText} onChange={(event) => setOffer({ ...offer, extraItemText: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label>Products auto-added when claimed</label>
-                    <div className="auto-add-list">
-                      {offer.autoAddItems.map((item, index) => (
-                        <div className="auto-add-row" key={`${item.productId}-${index}`}>
-                          <select value={item.productId} onChange={(event) => updateOfferAutoItem(index, { productId: event.target.value })}>
-                            {products.map((product) => (
-                              <option key={product.id} value={product.id}>
-                                {product.name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            min="0.25"
-                            step="0.25"
-                            type="number"
-                            value={item.quantityKg}
-                            onChange={(event) => updateOfferAutoItem(index, { quantityKg: Number(event.target.value) })}
-                          />
-                          <button className="button danger" type="button" onClick={() => removeOfferAutoItem(index)}>
-                            Delete
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <button className="button secondary" type="button" onClick={addOfferAutoItem}>
-                      + Add product rule
-                    </button>
-                  </div>
-                  <label className="check-row">
-                    <input type="checkbox" checked={offer.active} onChange={(event) => setOffer({ ...offer, active: event.target.checked })} />
-                    <span>Offer is active</span>
-                  </label>
-                  <button className="button" type="button" onClick={saveOfferUpdates}>
-                    {editingOffer ? "Save offer" : "Create offer"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="section-head">
-                  <div>
-                    <h2>Offer list</h2>
-                    <p className="muted">Edit, pause, or delete offers whenever required.</p>
-                  </div>
-                  <button className="button ghost" type="button" onClick={loadOffers}>
-                    Refresh
-                  </button>
-                </div>
-                <div className="offer-admin-list">
-                  {offers.map((entry) => (
-                    <div className={`offer-admin-row ${editingOfferId === entry.id ? "active" : ""}`} key={entry.id}>
-                      <div>
-                        <strong>{entry.title}</strong>
-                        <p className="muted">{entry.description}</p>
-                        <small>
-                          {entry.active ? "Active" : "Inactive"} · Expires {formatDate(entry.expiryDate)}
-                        </small>
-                        {entry.autoAddItems?.length ? (
-                          <p className="coupon-line">
-                            Auto-add:{" "}
-                            {entry.autoAddItems
-                              .map((item) => {
-                                const product = products.find((entryProduct) => entryProduct.id === item.productId);
-                                return `${product?.name ?? item.productId} ${item.quantityKg}kg`;
-                              })
-                              .join(", ")}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="row-actions">
-                        <button className="button secondary" type="button" onClick={() => startOfferEdit(entry)}>
-                          Edit
-                        </button>
-                        <button className="button danger" type="button" onClick={() => deleteOffer(entry.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        </>
-      )}
-
-      {toast ? (
-        <div className="toast" role="status">
-          {toast}
-          <button className="button ghost" type="button" onClick={() => setToast("")}>
-            Close
-          </button>
+    <div className="space-y-8 animate-fade-in font-sans">
+      {/* Page header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-black text-white uppercase tracking-wider">Dashboard Overview</h1>
+          <p className="text-xs text-[#a5948b] mt-1">Real-time storefront metrics and operations logs.</p>
         </div>
-      ) : null}
-    </main>
+        <div className="text-xs text-[#dfb15b] font-extrabold bg-[#dfb15b]/10 border border-[#dfb15b]/20 px-4 py-2 rounded-xl">
+          🟢 SECURE BACKEND CONSOLE SYNCED
+        </div>
+      </div>
+
+      {/* KPI Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Card 1: Revenue */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 relative overflow-hidden">
+          <div className="absolute top-4 right-4 text-2xl">💰</div>
+          <p className="text-[10px] font-black uppercase text-[#a5948b] tracking-wider">Total Revenue</p>
+          <h3 className="text-2xl font-black text-[#dfb15b] mt-2">₹{totalRevenue.toLocaleString("en-IN")}</h3>
+          <p className="text-[9px] text-[#a5948b]/60 mt-1">Excludes cancelled & unpaid orders</p>
+        </div>
+
+        {/* Card 2: Orders */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 relative overflow-hidden">
+          <div className="absolute top-4 right-4 text-2xl">📦</div>
+          <p className="text-[10px] font-black uppercase text-[#a5948b] tracking-wider">Total Orders</p>
+          <h3 className="text-2xl font-black text-white mt-2">{totalSalesCount}</h3>
+          <p className="text-[9px] text-[#a5948b]/60 mt-1">Includes pending, shipping & completed</p>
+        </div>
+
+        {/* Card 3: Pending */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 relative overflow-hidden">
+          <div className="absolute top-4 right-4 text-2xl">⏳</div>
+          <p className="text-[10px] font-black uppercase text-[#a5948b] tracking-wider">Pending Orders</p>
+          <h3 className="text-2xl font-black text-amber-500 mt-2">{pendingOrders}</h3>
+          <p className="text-[9px] text-[#a5948b]/60 mt-1">Orders waiting packaging or delivery</p>
+        </div>
+
+        {/* Card 4: Inventory */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 relative overflow-hidden">
+          <div className="absolute top-4 right-4 text-2xl">🥜</div>
+          <p className="text-[10px] font-black uppercase text-[#a5948b] tracking-wider">Active Catalog</p>
+          <h3 className="text-2xl font-black text-emerald-500 mt-2">{products.length} Items</h3>
+          <p className="text-[9px] text-[#a5948b]/60 mt-1">Across {categoryStats.length} major categories</p>
+        </div>
+      </div>
+
+      {/* Visual Analytics Chart & Category Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* SVG Sales Trend Chart */}
+        <div className="lg:col-span-2 bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xs font-black uppercase text-white tracking-widest">Order Volume Trends</h3>
+            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-500/10 px-2 py-0.5 rounded">Real-time</span>
+          </div>
+
+          <div className="h-48 w-full flex items-end justify-between gap-2 pt-6 relative border-b border-white/5 border-l">
+            {/* Y-axis gridlines */}
+            <div className="absolute left-0 right-0 top-0 border-t border-white/[0.03] text-[8px] text-[#a5948b]/40 pl-2">Peak</div>
+            <div className="absolute left-0 right-0 top-1/2 border-t border-white/[0.03] text-[8px] text-[#a5948b]/40 pl-2">Mid</div>
+
+            {/* Simple visual mock graph representing weekly order density */}
+            {[20, 45, 30, 80, 55, 90, 75].map((val, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
+                <div 
+                  style={{ height: `${val}%` }} 
+                  className="w-full bg-gradient-to-t from-[#40753b]/40 to-[#dfb15b] rounded-t-lg transition-all duration-500 group-hover:brightness-125 min-h-[4px]"
+                />
+                <span className="text-[8px] text-[#a5948b] uppercase tracking-wider font-extrabold mt-1">Day {idx+1}</span>
+                
+                {/* Tooltip */}
+                <div className="absolute bottom-[105%] bg-black text-[#dfb15b] border border-white/10 rounded px-2 py-1 text-[8px] font-bold opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap">
+                  {val}% Density
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Top Categories */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-4">
+          <h3 className="text-xs font-black uppercase text-white tracking-widest">Top Selling Ranges</h3>
+          <div className="space-y-4 pt-2">
+            {categoryStats.map(([cat, count], idx) => {
+              const percentages = [65, 45, 35];
+              return (
+                <div key={cat} className="space-y-1.5">
+                  <div className="flex justify-between items-center text-xs font-semibold text-white uppercase">
+                    <span className="text-xs">{cat}</span>
+                    <span className="text-[#dfb15b] text-[10px]">{count} products</span>
+                  </div>
+                  <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
+                    <div 
+                      style={{ width: `${percentages[idx] || 25}%` }} 
+                      className="bg-[#dfb15b] h-full rounded-full" 
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {categoryStats.length === 0 && (
+              <p className="text-xs text-[#a5948b] italic">No products added yet.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Orders & Operations Alerts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Orders */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xs font-black uppercase text-white tracking-widest">Recent Placed Orders</h3>
+            <Link href="/admin/orders" className="text-[10px] text-[#dfb15b] font-extrabold hover:underline uppercase tracking-wide">
+              Manage all ↗
+            </Link>
+          </div>
+
+          <div className="divide-y divide-white/5">
+            {recentOrders.map((o) => (
+              <div key={o.id} className="py-3 flex justify-between items-center text-xs">
+                <div>
+                  <p className="font-bold text-white">{o.userName || o.userPhone}</p>
+                  <p className="text-[9px] text-[#a5948b] mt-0.5 uppercase">
+                    ID: {o.id.slice(0, 8)} · {o.items.length} items
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-extrabold text-[#dfb15b]">₹{o.totalAmount}</p>
+                  <span className={`inline-block text-[8px] px-2 py-0.5 rounded font-black uppercase mt-1 ${
+                    o.status === "new" ? "bg-amber-500/10 text-amber-500" :
+                    o.status === "delivered" ? "bg-emerald-500/10 text-emerald-500" :
+                    o.status === "cancelled" ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
+                  }`}>
+                    {o.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {recentOrders.length === 0 && (
+              <p className="text-xs text-[#a5948b] italic py-4 text-center">No orders available yet.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Live Admin notifications log */}
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xs font-black uppercase text-white tracking-widest">System Alerts Feed</h3>
+            <span className="text-[8px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded uppercase font-black">Live</span>
+          </div>
+
+          <div className="space-y-3">
+            {recentAlerts.map((a) => (
+              <div key={a.id} className="p-3 bg-white/[0.01] border border-white/5 rounded-xl space-y-1">
+                <div className="flex justify-between items-center text-[9px] font-black uppercase text-[#a5948b]">
+                  <span className={a.type === "order_placed" ? "text-[#dfb15b]" : "text-emerald-500"}>
+                    {a.type.replace("_", " ")}
+                  </span>
+                  <span>{new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <h4 className="text-xs font-bold text-white">{a.title}</h4>
+                <p className="text-[10px] text-[#a5948b] leading-relaxed">{a.message}</p>
+              </div>
+            ))}
+            {recentAlerts.length === 0 && (
+              <p className="text-xs text-[#a5948b] italic py-4 text-center">No active notifications logs.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

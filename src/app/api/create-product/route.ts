@@ -26,12 +26,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Price must be greater than zero." }, { status: 400 });
   }
 
+  const price250g = Number(body.price250g ?? Math.round(pricePerKg * 0.28));
+  const price500g = Number(body.price500g ?? Math.round(pricePerKg * 0.53));
+  const price1kg = Number(body.price1kg ?? pricePerKg);
+
   const product: Product = {
     id: `${body.category}-${crypto.randomUUID()}`,
     name: body.name,
     imageUrl: body.imageUrl,
     videoUrl: body.videoUrl || "",
-    pricePerKg,
+    price250g,
+    price500g,
+    price1kg,
+    pricePerKg: price1kg,
     category: body.category,
     description: body.description || "Fresh dry fruit packed for everyday snacking.",
     stockKg: Number(body.stockKg ?? 20),
@@ -42,7 +49,7 @@ export async function POST(request: Request) {
   await addProduct(product);
   await notifyUsers({
     title: `New arrival: ${product.name}`,
-    message: `${product.name} is now available on Pista Bajaar.`,
+    message: `${product.name} is now available on Pista Bajar.`,
     type: "product",
     deepLink: "/"
   });

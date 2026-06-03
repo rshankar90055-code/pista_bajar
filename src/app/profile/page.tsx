@@ -11,8 +11,8 @@ export default function ProfilePage() {
   const [totalSavings, setTotalSavings] = useState(0);
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
-    const savedName = localStorage.getItem("pistabajaar_name") ?? "";
+    const savedPhone = localStorage.getItem("pistabajar_phone") ?? "";
+    const savedName = localStorage.getItem("pistabajar_name") ?? "";
     setPhone(savedPhone);
     setName(savedName);
 
@@ -31,8 +31,8 @@ export default function ProfilePage() {
   }, []);
 
   function signOut() {
-    localStorage.removeItem("pistabajaar_phone");
-    localStorage.removeItem("pistabajaar_name");
+    localStorage.removeItem("pistabajar_phone");
+    localStorage.removeItem("pistabajar_name");
     window.location.href = "/";
   }
 
@@ -134,7 +134,7 @@ export default function ProfilePage() {
             </svg>
           </span>
           <span>
-            <strong>About Pista Bajaar</strong>
+            <strong>About Pista Bajar</strong>
           </span>
           <em>›</em>
         </div>

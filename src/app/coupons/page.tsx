@@ -29,9 +29,9 @@ export default function CouponsPage() {
   const [toast, setToast] = useState("");
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
+    const savedPhone = localStorage.getItem("pistabajar_phone") ?? "";
     setPhone(savedPhone);
-    setClaimedOfferId(localStorage.getItem("pistabajaar_claimed_offer") ?? "");
+    setClaimedOfferId(localStorage.getItem("pistabajar_claimed_offer") ?? "");
     void Promise.all([
       fetch("/api/offers").then((response) => response.json()),
       fetch("/api/products").then((response) => response.json()),
@@ -55,26 +55,26 @@ export default function CouponsPage() {
       return;
     }
 
-    localStorage.setItem("pistabajaar_claimed_offer", offer.id);
+    localStorage.setItem("pistabajar_claimed_offer", offer.id);
     setClaimedOfferId(offer.id);
 
     const matchedProducts = getOfferProducts(offer, products);
     if (matchedProducts.length) {
-      const currentCart = JSON.parse(localStorage.getItem("pistabajaar_cart") ?? "{}") as Cart;
+      const currentCart = JSON.parse(localStorage.getItem("pistabajar_cart") ?? "{}") as Cart;
       const next = { ...currentCart };
       matchedProducts.forEach(({ product, quantityKg }) => {
         const maxStock = product.stockKg ?? Number.POSITIVE_INFINITY;
         const currentQuantity = next[product.id] ?? 0;
         next[product.id] = Math.min(maxStock, Math.max(currentQuantity, quantityKg));
       });
-      localStorage.setItem("pistabajaar_cart", JSON.stringify(next));
+      localStorage.setItem("pistabajar_cart", JSON.stringify(next));
     }
 
     window.location.href = "/cart";
   }
 
   function removeCoupon() {
-    localStorage.removeItem("pistabajaar_claimed_offer");
+    localStorage.removeItem("pistabajar_claimed_offer");
     setClaimedOfferId("");
     setToast("Coupon removed.");
   }
@@ -84,9 +84,9 @@ export default function CouponsPage() {
       <header className="topbar">
         <a className="brand" href="/cart">
           <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
-            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img src="/pistabajar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </span>
-          <span>Pista Bajaar Coupons</span>
+          <span>Pista Bajar Coupons</span>
         </a>
         <a className="button ghost" href="/cart">
           Cart

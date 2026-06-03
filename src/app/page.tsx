@@ -15,7 +15,7 @@ import type {
   UpiApp
 } from "@/lib/types";
 
-type Cart = Record<string, number>;
+type Cart = Record<string, { weight: string; quantity: number }>;
 type Screen = 
   | "splash"
   | "onboarding"
@@ -129,13 +129,13 @@ const BellIcon = () => (
   </svg>
 );
 
-const merchantUpiId = process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID ?? "shubhachandra12pro@okicici";
+const merchantUpiId = process.env.NEXT_PUBLIC_PISTABAJAR_UPI_ID || process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID || "shubhachandra12pro@okicici";
 
 function buildUpiUrls(app: UpiApp, amount: number, orderId: string) {
-  const transactionNote = `Pista Bajaar order ${orderId.slice(0, 8)}`;
+  const transactionNote = `Pista Bajar order ${orderId.slice(0, 8)}`;
   const params = new URLSearchParams({
     pa: merchantUpiId,
-    pn: "Pista Bajaar",
+    pn: "Pista Bajar",
     am: String(amount),
     cu: "INR",
     tn: transactionNote,
@@ -180,7 +180,7 @@ export default function StorefrontPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   
   // Pack weight mappings
-  const [selectedPacks, setSelectedPacks] = useState<Record<string, number>>({});
+  const [selectedPacks, setSelectedPacks] = useState<Record<string, string>>({});
   
   // Checkout & Gifting states
   const [address, setAddress] = useState<Address>(emptyAddress);
@@ -244,11 +244,20 @@ export default function StorefrontPage() {
 
   // Pre-load data & restore state
   useEffect(() => {
+    // Migrate old keys to new keys if they exist and new keys don't
+    const keys = ["phone", "name", "cart", "wishlist", "cart_packs", "claimed_offer", "addresses", "orders"];
+    keys.forEach((key) => {
+      const oldVal = localStorage.getItem(`pistabajaar_${key}`);
+      if (oldVal && !localStorage.getItem(`pistabajar_${key}`)) {
+        localStorage.setItem(`pistabajar_${key}`, oldVal);
+      }
+    });
+
     // Restore login
-    const savedPhone = localStorage.getItem("pistabajaar_phone");
-    const savedName = localStorage.getItem("pistabajaar_name") ?? "";
-    const savedCart = localStorage.getItem("pistabajaar_cart");
-    const savedWishlist = localStorage.getItem("pistabajaar_wishlist");
+    const savedPhone = localStorage.getItem("pistabajar_phone");
+    const savedName = localStorage.getItem("pistabajar_name") ?? "";
+    const savedCart = localStorage.getItem("pistabajar_cart");
+    const savedWishlist = localStorage.getItem("pistabajar_wishlist");
     
     if (savedPhone) {
       setPhone(savedPhone);
@@ -289,12 +298,12 @@ export default function StorefrontPage() {
 
   // Save cart to localstorage
   useEffect(() => {
-    localStorage.setItem("pistabajaar_cart", JSON.stringify(cart));
+    localStorage.setItem("pistabajar_cart", JSON.stringify(cart));
   }, [cart]);
 
   // Save wishlist to localstorage
   useEffect(() => {
-    localStorage.setItem("pistabajaar_wishlist", JSON.stringify(wishlist));
+    localStorage.setItem("pistabajar_wishlist", JSON.stringify(wishlist));
   }, [wishlist]);
 
   // Load Saved Addresses once logged in
@@ -363,20 +372,27 @@ export default function StorefrontPage() {
   };
 
   // Add items to cart
-  const addToCart = (productId: string) => {
+  const addToCart = (productId: string, weight?: string, qty: number = 1) => {
     const product = products.find((p) => p.id === productId);
     if (!product || product.soldOut) {
       showToast("Sorry, this item is sold out!");
       return;
     }
-    const pack = selectedPacks[productId] ?? 1;
-    setCart((prev) => ({
-      ...prev,
-      [productId]: Number(((prev[productId] ?? 0) + pack).toFixed(2))
-    }));
+    const selectedWeight = weight || selectedPacks[productId] || "1kg";
+    setCart((prev) => {
+      const current = prev[productId];
+      const currentQty = (current && current.weight === selectedWeight) ? current.quantity : 0;
+      return {
+        ...prev,
+        [productId]: {
+          weight: selectedWeight,
+          quantity: currentQty + qty
+        }
+      };
+    });
     setCartBounce(true);
     setTimeout(() => setCartBounce(false), 800);
-    showToast(`Added ${pack}kg ${product.name} to Cart 🛒`);
+    showToast(`Added ${selectedWeight} pack of ${product.name} to Cart 🛒`);
   };
 
   // Add/Remove wishlist
@@ -390,13 +406,17 @@ export default function StorefrontPage() {
   // Step quantity in cart
   const stepQty = (id: string, delta: number) => {
     setCart((prev) => {
-      const current = prev[id] ?? 0;
-      const next = Number((current + delta).toFixed(2));
+      const current = prev[id];
+      if (!current) return prev;
+      const nextQty = current.quantity + delta;
       const updated = { ...prev };
-      if (next <= 0) {
+      if (nextQty <= 0) {
         delete updated[id];
       } else {
-        updated[id] = next;
+        updated[id] = {
+          ...current,
+          quantity: nextQty
+        };
       }
       return updated;
     });
@@ -404,14 +424,24 @@ export default function StorefrontPage() {
 
   // Calculate prices
   const cartItems = useMemo(() => {
-    return Object.entries(cart).map(([id, qty]) => {
+    return Object.entries(cart).map(([id, item]) => {
       const prod = products.find((p) => p.id === id);
-      return prod ? { product: prod, quantity: qty, total: Math.round(prod.pricePerKg * qty) } : null;
-    }).filter(Boolean) as Array<{ product: Product; quantity: number; total: number }>;
+      if (!prod) return null;
+      let price = prod.price1kg;
+      if (item.weight === "250g") price = prod.price250g;
+      else if (item.weight === "500g") price = prod.price500g;
+
+      return { 
+        product: prod, 
+        weight: item.weight,
+        quantity: item.quantity, 
+        total: Math.round(price * item.quantity) 
+      };
+    }).filter(Boolean) as Array<{ product: Product; weight: string; quantity: number; total: number }>;
   }, [cart, products]);
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.total, 0);
-  const discount = claimedOffer?.discountCode ? Math.round(subtotal * 0.15) : 0; // 15% discount mock
+  const discount = claimedOffer?.discountCode ? Math.round(subtotal * 0.15) : 0; // 15% discount
   const shipping = subtotal > 1500 ? 0 : 49;
   const codFee = paymentMethod === "cash_on_delivery" ? 9 : 0;
   const totalAmount = subtotal - discount + shipping + codFee;
@@ -435,11 +465,11 @@ export default function StorefrontPage() {
     }
     
     setIsLoggedIn(true);
-    localStorage.setItem("pistabajaar_phone", phone);
+    localStorage.setItem("pistabajar_phone", phone);
     const mockName = customerName || (phone.includes("@") ? phone.split("@")[0] : "Customer");
-    localStorage.setItem("pistabajaar_name", mockName);
+    localStorage.setItem("pistabajar_name", mockName);
     setCustomerName(mockName);
-    showToast("Access Granted! Welcome to Pista Bajaar ✨");
+    showToast("Access Granted! Welcome to Pista Bajar ✨");
     setCurrentScreen("home");
   };
 
@@ -458,9 +488,9 @@ export default function StorefrontPage() {
     }
     
     setIsLoggedIn(true);
-    localStorage.setItem("pistabajaar_phone", phone);
-    localStorage.setItem("pistabajaar_name", customerName);
-    showToast("Account Created! Welcome to Pista Bajaar ✨");
+    localStorage.setItem("pistabajar_phone", phone);
+    localStorage.setItem("pistabajar_name", customerName);
+    showToast("Account Created! Welcome to Pista Bajar ✨");
     setCurrentScreen("home");
   };
 
@@ -468,11 +498,11 @@ export default function StorefrontPage() {
     setIsLoggedIn(true);
     const mockPhone = "google-user";
     const mockName = "Google User";
-    localStorage.setItem("pistabajaar_phone", mockPhone);
-    localStorage.setItem("pistabajaar_name", mockName);
+    localStorage.setItem("pistabajar_phone", mockPhone);
+    localStorage.setItem("pistabajar_name", mockName);
     setPhone(mockPhone);
     setCustomerName(mockName);
-    showToast("Logged in with Google! Welcome to Pista Bajaar ✨");
+    showToast("Logged in with Google! Welcome to Pista Bajar ✨");
     setCurrentScreen("home");
   };
 
@@ -501,7 +531,13 @@ export default function StorefrontPage() {
           name: customerName || "Customer",
           phone,
           address,
-          items: cartItems.map((item) => ({ productId: item.product.id, quantityKg: item.quantity })),
+          items: cartItems.map((item) => ({
+            productId: item.product.id,
+            name: item.product.name,
+            quantity: item.quantity,
+            selectedWeight: item.weight,
+            lineTotal: item.total
+          })),
           claimedOfferId: claimedOffer?.id,
           discountCode: claimedOffer?.discountCode,
           paymentMethod,
@@ -580,7 +616,7 @@ export default function StorefrontPage() {
       {currentScreen === "onboarding" && (
         <div className="onboarding-screen">
           <div className="onboarding-header">
-            <span className="text-lg font-black tracking-widest text-[#dfb15b]">PISTA BAJAAR</span>
+            <span className="text-lg font-black tracking-widest text-[#dfb15b]">PISTA BAJAR</span>
             <button onClick={() => setCurrentScreen("login")} className="text-xs font-semibold text-[#dfc7b0] tracking-wider uppercase opacity-80 hover:opacity-100">Skip</button>
           </div>
 
@@ -665,11 +701,11 @@ export default function StorefrontPage() {
         <div className="flex flex-col h-full bg-gradient-to-b from-[#1c130f] via-[#120e0d] to-[#090706] text-white p-6 justify-between z-50 overflow-y-auto">
           <div className="mt-8 flex flex-col items-center">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#dfb15b] to-[#b88d3d] flex items-center justify-center shadow-lg mb-4 p-1 overflow-hidden">
-              <img src="/pistabajaar-logo.png" alt="Pista Bajaar" className="h-14 w-14 object-contain" />
+              <img src="/pistabajar-logo.png" alt="Pista Bajar" className="h-14 w-14 object-contain" />
             </div>
-            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#dfb15b] to-[#dfc7b0] tracking-tight">Pista Bajaar</h1>
+            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-[#dfb15b] to-[#dfc7b0] tracking-tight">Pista Bajar</h1>
             <p className="text-xs text-[#a5948b] mt-1 font-semibold tracking-wide text-center">
-              {isSignUp ? "Create a free shopping account" : "Welcome back to Pista Bajaar"}
+              {isSignUp ? "Create a free shopping account" : "Welcome back to Pista Bajar"}
             </p>
           </div>
 
@@ -751,7 +787,7 @@ export default function StorefrontPage() {
               {isSignUp ? "Already have an account? Log in" : "Don't have an account? Sign up"}
             </button>
             <p className="text-[9px] text-[#a5948b]/60 leading-relaxed max-w-[260px] mx-auto mt-3">
-              By accessing Pista Bajaar, you agree to our terms of service. Premium dry fruits delivered in 15-20 minutes.
+              By accessing Pista Bajar, you agree to our terms of service. Premium dry fruits delivered in 15-20 minutes.
             </p>
           </div>
         </div>
@@ -786,10 +822,10 @@ export default function StorefrontPage() {
                   <div className="flex justify-between items-start">
                     <div className="flex gap-2.5 items-center">
                       <div className="w-10 h-10 rounded-xl bg-[#dfb15b] flex items-center justify-center shadow-lg p-0.5 overflow-hidden">
-                        <img src="/pistabajaar-logo.png" alt="Pista Bajaar" className="h-9 w-9 object-contain" />
+                        <img src="/pistabajar-logo.png" alt="Pista Bajar" className="h-9 w-9 object-contain" />
                       </div>
                       <div>
-                        <h1 className="text-sm font-extrabold text-white tracking-wide">Pista Bajaar</h1>
+                        <h1 className="text-sm font-extrabold text-white tracking-wide">Pista Bajar</h1>
                         <p className="text-[10px] text-[#a5948b] font-medium flex items-center gap-1">
                           <span>Customer:</span>
                           <span className="text-[#dfb15b] font-semibold">{customerName || "Customer"}</span>
@@ -870,7 +906,7 @@ export default function StorefrontPage() {
               />
               <div className="absolute inset-0 p-5 flex flex-col justify-between text-white">
                 <div>
-                  <span className="text-[9px] font-bold tracking-widest text-[#dfb15b] uppercase block">Pista Bajaar Choice</span>
+                  <span className="text-[9px] font-bold tracking-widest text-[#dfb15b] uppercase block">Pista Bajar Choice</span>
                   <h2 className="text-xl font-black mt-1 leading-tight tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-white to-[#dfc7b0]">Royal Gold Hamper</h2>
                   <p className="text-[10px] text-white/70 max-w-[180px] mt-1.5 leading-relaxed">Pure Kashmiri Saffron, roasted cashews, and dates pack. Gift premium unboxing today.</p>
                 </div>
@@ -974,7 +1010,7 @@ export default function StorefrontPage() {
             <div>
               <h3 className="text-xs font-black tracking-wider text-[#2d1e18] uppercase mb-3 flex items-center gap-1">
                 <span>⭐</span>
-                <span>Pista Bajaar Best Sellers</span>
+                <span>Pista Bajar Best Sellers</span>
               </h3>
               <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
                 {products.slice(2, 6).map((prod) => (
@@ -999,9 +1035,9 @@ export default function StorefrontPage() {
                         <p className="text-[8px] text-[#72625a] mt-0.5">Rating: 4.9 (240+)</p>
                       </div>
                       <div className="flex justify-between items-center mt-2.5">
-                        <span className="text-[10px] font-black text-[#2d1e18]">₹{prod.pricePerKg}</span>
+                        <span className="text-[10px] font-black text-[#2d1e18]">₹{prod.price1kg}</span>
                         <button 
-                          onClick={() => addToCart(prod.id)}
+                          onClick={() => addToCart(prod.id, "1kg", 1)}
                           className="py-1 px-2.5 bg-[#dfb15b] hover:bg-[#cfa054] text-[#1c130f] text-[9px] font-black rounded-lg transition"
                         >
                           + ADD
@@ -1017,7 +1053,7 @@ export default function StorefrontPage() {
             <div className="p-4 rounded-2xl bg-gradient-to-br from-[#f6eedc] to-white border border-[#dfb15b]/20 flex gap-3.5 items-center">
               <span className="text-3xl">🛡️</span>
               <div>
-                <h4 className="text-[10px] font-extrabold text-[#2d1e18] uppercase tracking-wider">Pista Bajaar Gold Standard Guarantee</h4>
+                <h4 className="text-[10px] font-extrabold text-[#2d1e18] uppercase tracking-wider">Pista Bajar Gold Standard Guarantee</h4>
                 <p className="text-[9px] text-[#72625a] mt-1 leading-relaxed">Every packet of dry fruits undergoes triple-level laser cleaning, visual hand sorting, and airtight vacuum packaging.</p>
               </div>
             </div>
@@ -1063,7 +1099,7 @@ export default function StorefrontPage() {
         <div className="premium-screen-container">
           <div className="p-4 pt-12 bg-gradient-to-r from-[#2d1e18] to-[#120e0d] text-white flex items-center justify-between shadow">
             <div>
-              <span className="text-[8px] font-bold text-[#dfb15b] uppercase tracking-widest">Pista Bajaar Pantry</span>
+              <span className="text-[8px] font-bold text-[#dfb15b] uppercase tracking-widest">Pista Bajar Pantry</span>
               <h2 className="text-xs font-black uppercase tracking-wider">{category === "all" ? "All dry fruits" : categoryMetadata[category].label}</h2>
             </div>
             <button 
@@ -1144,9 +1180,8 @@ export default function StorefrontPage() {
 
       {/* SCREEN 7: PRODUCT DETAIL PAGE */}
       {currentScreen === "detail" && selectedProduct && (() => {
-        const selectedWeight = selectedPacks[selectedProduct.id] ?? 1;
-        const dynamicPrice = Math.round(selectedProduct.pricePerKg * selectedWeight);
-        const selectedWeightLabel = selectedWeight === 1 ? "1kg" : selectedWeight === 0.5 ? "500g" : "250g";
+        const selectedWeightLabel = String(selectedPacks[selectedProduct.id] ?? "1kg");
+        const dynamicPrice = selectedWeightLabel === "250g" ? selectedProduct.price250g : selectedWeightLabel === "500g" ? selectedProduct.price500g : selectedProduct.price1kg;
         const slides = [
           { label: "Signature Selection", desc: "Hand-sorted, premium export quality" },
           { label: "Laser Cleaned Purity", desc: "Triple sorted organic standard" },
@@ -1279,7 +1314,7 @@ export default function StorefrontPage() {
                     <p className="text-[8px] text-[#72625a] font-bold uppercase tracking-wider">Acquisition Price ({selectedWeightLabel})</p>
                     <div className="flex items-baseline gap-1 mt-0.5">
                       <span className="text-2xl font-black text-[#2d1e18]">₹{dynamicPrice}</span>
-                      <span className="text-[9px] text-[#72625a] font-semibold">({selectedWeight === 1 ? "₹" + selectedProduct.pricePerKg + "/kg rate" : "₹" + selectedProduct.pricePerKg + "/kg equivalent"})</span>
+                      <span className="text-[9px] text-[#72625a] font-semibold">({selectedWeightLabel === "1kg" ? "₹" + selectedProduct.price1kg + "/kg rate" : "₹" + selectedProduct.price1kg + "/kg equivalent"})</span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
@@ -1293,15 +1328,16 @@ export default function StorefrontPage() {
                   <label className="text-[10px] font-black text-[#2d1e18] uppercase tracking-wider block mb-2">Select Pack Size Weight</label>
                   <div className="grid grid-cols-3 gap-2.5">
                     {packSizes.map((pack) => {
-                      const active = (selectedPacks[selectedProduct.id] ?? 1) === pack.value;
+                      const active = (selectedPacks[selectedProduct.id] ?? "1kg") === pack.label;
+                      const price = pack.label === "250g" ? selectedProduct.price250g : pack.label === "500g" ? selectedProduct.price500g : selectedProduct.price1kg;
                       return (
                         <button 
                           key={pack.label}
-                          onClick={() => setSelectedPacks((prev) => ({ ...prev, [selectedProduct.id]: pack.value }))}
+                          onClick={() => setSelectedPacks((prev) => ({ ...prev, [selectedProduct.id]: pack.label }))}
                           className={`py-2.5 px-3 rounded-2xl border text-xs font-black transition-all flex flex-col items-center ${active ? "bg-[#2d1e18] border-[#dfb15b] text-white shadow-[0_0_12px_rgba(223,177,91,0.3)] scale-[1.03]" : "bg-white border-[#efe3d3] text-[#2d1e18] hover:border-[#dfb15b]/50"}`}
                         >
                           <span className="tracking-wide">{pack.label}</span>
-                          <span className={`text-[8px] mt-0.5 font-bold ${active ? "text-[#dfb15b]" : "text-[#72625a]"}`}>₹{Math.round(selectedProduct.pricePerKg * pack.value)}</span>
+                          <span className={`text-[8px] mt-0.5 font-bold ${active ? "text-[#dfb15b]" : "text-[#72625a]"}`}>₹{price}</span>
                         </button>
                       );
                     })}
@@ -1371,8 +1407,8 @@ export default function StorefrontPage() {
             <div className="p-4 pb-[calc(1.2rem+env(safe-area-inset-bottom,0px))] md:pb-4 bg-white border-t border-[#efe3d3] flex gap-3 items-center absolute bottom-0 w-full z-20 shadow-[0_-4px_16px_rgba(0,0,0,0.03)]">
               <button 
                 onClick={() => {
-                  addToCart(selectedProduct.id);
-                  // Keep user on details screen for premium UX, just update cart feedback
+                  const weightStr = String(selectedPacks[selectedProduct.id] ?? "1kg");
+                  addToCart(selectedProduct.id, weightStr);
                 }}
                 className="flex-1 py-3.5 bg-gradient-to-r from-[#2d1e18] to-[#1e120e] hover:from-[#120e0d] hover:to-[#000] text-white border border-[#dfb15b]/20 font-black rounded-2xl text-[10px] transition-all shadow-md tracking-wider uppercase text-center active:scale-95"
               >
@@ -1381,12 +1417,8 @@ export default function StorefrontPage() {
               
               <button 
                 onClick={() => {
-                  // Add and redirect instantly
-                  const pack = selectedPacks[selectedProduct.id] ?? 1;
-                  setCart((prev) => ({
-                    ...prev,
-                    [selectedProduct.id]: Number(((prev[selectedProduct.id] ?? 0) + pack).toFixed(2))
-                  }));
+                  const weightStr = String(selectedPacks[selectedProduct.id] ?? "1kg");
+                  addToCart(selectedProduct.id, weightStr);
                   setCurrentScreen("checkout");
                   setCheckoutStep(1);
                 }}
@@ -1418,7 +1450,7 @@ export default function StorefrontPage() {
                   onClick={() => setCurrentScreen("home")} 
                   className="mt-4 py-2.5 px-5 bg-[#dfb15b] text-[#1c130f] text-[10px] font-extrabold rounded-lg tracking-wider transition"
                 >
-                  SHOP PISTA BAJAAR NOW
+                  SHOP PISTA BAJAR NOW
                 </button>
               </div>
             ) : (
@@ -1433,15 +1465,15 @@ export default function StorefrontPage() {
                       <img src={item.product.imageUrl} alt={item.product.name} className="w-14 h-14 rounded-xl object-cover" />
                       <div className="flex-1 min-w-0">
                         <h4 className="text-[10px] font-extrabold text-[#2d1e18] truncate">{item.product.name}</h4>
-                        <p className="text-[9px] text-[#72625a] mt-0.5">Weight: {item.quantity}kg</p>
+                        <p className="text-[9px] text-[#72625a] mt-0.5">Size: {item.weight} ({item.quantity} {item.quantity === 1 ? "pack" : "packs"})</p>
                         <p className="text-xs font-black text-[#2d1e18] mt-1">₹{item.total}</p>
                       </div>
                       
                       {/* Qty controller buttons */}
                       <div className="flex items-center gap-2.5 bg-slate-50 border border-[#efe3d3] rounded-lg p-1 flex-shrink-0">
-                        <button onClick={() => stepQty(item.product.id, -0.25)} className="w-6 h-6 rounded-md hover:bg-slate-200 text-xs font-black text-[#2d1e18]">-</button>
-                        <span className="text-[10px] font-bold text-[#2d1e18] min-w-[28px] text-center">{item.quantity}kg</span>
-                        <button onClick={() => stepQty(item.product.id, 0.25)} className="w-6 h-6 rounded-md hover:bg-slate-200 text-xs font-black text-[#2d1e18]">+</button>
+                        <button onClick={() => stepQty(item.product.id, -1)} className="w-6 h-6 rounded-md hover:bg-slate-200 text-xs font-black text-[#2d1e18]">-</button>
+                        <span className="text-[10px] font-bold text-[#2d1e18] min-w-[24px] text-center">{item.quantity}</span>
+                        <button onClick={() => stepQty(item.product.id, 1)} className="w-6 h-6 rounded-md hover:bg-slate-200 text-xs font-black text-[#2d1e18]">+</button>
                       </div>
                     </div>
                   ))}
@@ -1850,7 +1882,7 @@ export default function StorefrontPage() {
                     <span className="text-[9px] font-black text-[#dfb15b] uppercase tracking-widest">Direct QR Scan & Pay</span>
                     <div className="bg-white p-3.5 rounded-2xl border-2 border-[#dfb15b] shadow-md">
                       <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${merchantUpiId}&pn=Pista%20Bajaar&am=${totalAmount + (giftWrap ? 49 : 0)}&cu=INR&tn=Order%20Payment`)}`} 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${merchantUpiId}&pn=Pista%20Bajar&am=${totalAmount + (giftWrap ? 49 : 0)}&cu=INR&tn=Order%20Payment`)}`} 
                         alt="Payment QR Code" 
                         className="w-40 h-40 object-contain block"
                       />
@@ -2014,7 +2046,7 @@ export default function StorefrontPage() {
                 <span className="text-2xl">🚴</span>
                 <div>
                   <p className="font-extrabold text-[#2d1e18]">Shaurya Kumar</p>
-                  <p className="text-[9px] text-[#72625a]">Pista Bajaar Certified Express Partner</p>
+                  <p className="text-[9px] text-[#72625a]">Pista Bajar Certified Express Partner</p>
                 </div>
               </div>
               <button 
@@ -2126,7 +2158,7 @@ export default function StorefrontPage() {
                   <div className="p-4 flex justify-between items-center bg-[#f6eedc]/20">
                     <div>
                       <p className="text-[8px] text-[#72625a] font-bold uppercase tracking-wider">Discount Code</p>
-                      <p className="text-xs font-extrabold text-[#2d1e18] mt-0.5 tracking-wider">{off.discountCode || "PISTABAJAARCOMB"}</p>
+                      <p className="text-xs font-extrabold text-[#2d1e18] mt-0.5 tracking-wider">{off.discountCode || "PISTABAJARCOMB"}</p>
                     </div>
                     <button 
                       onClick={() => handleApplyCoupon(off)}
@@ -2168,7 +2200,7 @@ export default function StorefrontPage() {
             <div className="p-3.5 bg-white rounded-2xl border border-[#dfb15b]/30 shadow-sm flex gap-3 items-start relative overflow-hidden">
               <span className="text-lg">🎉</span>
               <div>
-                <h4 className="text-[10px] font-extrabold text-[#2d1e18] uppercase tracking-wider">Welcome to Pista Bajaar Luxury!</h4>
+                <h4 className="text-[10px] font-extrabold text-[#2d1e18] uppercase tracking-wider">Welcome to Pista Bajar Luxury!</h4>
                 <p className="text-[9px] text-[#72625a] mt-1 leading-relaxed">Enjoy hand-sorted dry fruits, complimentary greeting gift box note cards, and 15-20 min quick-commerce unboxing.</p>
                 <p className="text-[8px] text-[#72625a]/60 mt-1.5 font-bold uppercase tracking-wider">Just Now</p>
               </div>
@@ -2201,7 +2233,7 @@ export default function StorefrontPage() {
               <div className="absolute top-0 right-0 w-24 h-24 bg-[#dfb15b]/10 rounded-full blur-xl" />
               <div className="flex justify-between items-start">
                 <div>
-                  <span className="text-[8px] font-bold text-[#dfb15b] uppercase tracking-widest bg-[#dfb15b]/10 px-2 py-0.5 rounded-full">Pista Bajaar Account</span>
+                  <span className="text-[8px] font-bold text-[#dfb15b] uppercase tracking-widest bg-[#dfb15b]/10 px-2 py-0.5 rounded-full">Pista Bajar Account</span>
                   <h3 className="text-base font-black tracking-tight mt-2">{customerName || "Customer Name"}</h3>
                   <p className="text-[10px] text-white/60 mt-0.5 font-medium">{phone}</p>
                 </div>
@@ -2214,7 +2246,7 @@ export default function StorefrontPage() {
                   <p className="font-extrabold text-[#dfb15b] mt-0.5">CUSTOMER</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[8px] text-[#a5948b] uppercase tracking-widest">Pista Bajaar Wallet Savings</p>
+                  <p className="text-[8px] text-[#a5948b] uppercase tracking-widest">Pista Bajar Wallet Savings</p>
                   <p className="font-extrabold text-white mt-0.5">₹{totalSavings}</p>
                 </div>
               </div>
@@ -2250,8 +2282,8 @@ export default function StorefrontPage() {
 
             <button 
               onClick={() => {
-                localStorage.removeItem("pistabajaar_phone");
-                localStorage.removeItem("pistabajaar_name");
+                localStorage.removeItem("pistabajar_phone");
+                localStorage.removeItem("pistabajar_name");
                 setIsLoggedIn(false);
                 setPhone("");
                 setCustomerName("");
@@ -2301,7 +2333,7 @@ export default function StorefrontPage() {
 
                     <div className="space-y-1 text-xs">
                       {ord.items.map((item, idx) => (
-                        <p key={idx} className="text-[#2d1e18] font-semibold">{item.name} ({item.quantityKg}kg)</p>
+                        <p key={idx} className="text-[#2d1e18] font-semibold">{item.name} ({item.selectedWeight} × {item.quantity})</p>
                       ))}
                     </div>
 
@@ -2314,7 +2346,13 @@ export default function StorefrontPage() {
                         onClick={() => {
                           showToast("Reordering premium items... 🛒");
                           ord.items.forEach((item) => {
-                            setCart((prev) => ({ ...prev, [item.productId]: item.quantityKg }));
+                            setCart((prev) => ({ 
+                              ...prev, 
+                              [item.productId]: { 
+                                weight: item.selectedWeight || "1kg", 
+                                quantity: item.quantity || 1 
+                              } 
+                            }));
                           });
                           setCurrentScreen("cart");
                         }}

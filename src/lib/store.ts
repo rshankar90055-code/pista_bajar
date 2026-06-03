@@ -18,7 +18,7 @@ import { supabase } from "./supabase";
 import { isSupabaseConfigured } from "./supabase-config";
 
 const seedStorePath = path.join(process.cwd(), "data", "store.json");
-const dataDir = process.env.VERCEL ? path.join("/tmp", "pistabajaar") : path.join(process.cwd(), "data");
+const dataDir = process.env.VERCEL ? path.join("/tmp", "pistabajar") : path.join(process.cwd(), "data");
 const storePath = path.join(dataDir, "store.json");
 
 const offers: Offer[] = [
@@ -167,12 +167,16 @@ export async function readStore(): Promise<StoreData> {
       id: String(p.id),
       name: p.name || "",
       imageUrl: p.image || p.imageUrl || "",
+      price250g: Number(p.price_250g || 0),
+      price500g: Number(p.price_500g || 0),
+      price1kg: Number(p.price_1kg || 0),
       pricePerKg: Number(p.price_1kg || 0),
       category: p.category || "almonds",
       description: p.description || "",
       stockKg: Number(p.stock ?? 0),
       soldOut: Number(p.stock ?? 0) <= 0,
-      featured: Boolean(p.featured)
+      featured: Boolean(p.featured),
+      rating: Number(p.rating || 0.0)
     }));
 
     // Map COUPONS to Next.js Offer type
@@ -209,11 +213,21 @@ export async function readStore(): Promise<StoreData> {
       const matchedUser = (usersRes.data || []).find((u: any) => u.id === o.user_id);
       const items: OrderItem[] = (o.order_items || []).map((item: any) => {
         const matchingProduct = products.find((p) => p.id === String(item.product_id));
+        const selectedWeight = item.selected_weight || "1kg";
+        const quantity = Number(item.quantity || 1.0);
+        let quantityKg = quantity;
+        if (selectedWeight === "250g") quantityKg = quantity * 0.25;
+        else if (selectedWeight === "500g") quantityKg = quantity * 0.5;
+
+        const pricePerKg = matchingProduct ? matchingProduct.price1kg : (item.subtotal && quantityKg ? Math.round(Number(item.subtotal) / quantityKg) : 0);
+
         return {
           productId: String(item.product_id),
           name: matchingProduct ? matchingProduct.name : "Organic Dry Fruits",
-          quantityKg: Number(item.quantity || 0),
-          pricePerKg: matchingProduct ? matchingProduct.pricePerKg : (item.subtotal && item.quantity ? Math.round(Number(item.subtotal) / Number(item.quantity)) : 0),
+          quantityKg,
+          pricePerKg,
+          selectedWeight,
+          quantity,
           lineTotal: Number(item.subtotal || 0)
         };
       });
@@ -246,14 +260,39 @@ export async function readStore(): Promise<StoreData> {
       };
     });
 
+      let notifications: AppNotification[] = local.notifications;
+      try {
+        const { data: notifData, error: notifError } = await supabase
+          .from("notifications")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (!notifError && notifData) {
+          notifications = notifData.map((n: any) => ({
+            id: String(n.id),
+            audience: n.audience || "admin",
+            phone: n.phone || undefined,
+            title: n.title || "",
+            message: n.message || "",
+            type: n.type || "product",
+            icon: n.icon || undefined,
+            deepLink: n.deepLink || undefined,
+            createdAt: n.created_at || new Date().toISOString(),
+            read: Boolean(n.read)
+          }));
+        }
+      } catch (e) {
+        console.warn("Supabase notifications fetch failed, using local storage fallback:", e);
+      }
+
     return {
       users,
       addresses: normalizeAddressDefaults(addresses),
-      products: products.length ? products : local.products,
+      products,
       orders: ordersData,
-      offers: offersData.length ? offersData : local.offers,
-      couponUsages: local.couponUsages, 
-      notifications: local.notifications, // Kept local per user requirement
+      offers: offersData,
+      couponUsages: [],
+      notifications,
       otps: local.otps
     };
   } catch (err) {
@@ -615,8 +654,8 @@ export async function addOrder(order: Order): Promise<Order> {
     const dbItems = order.items.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
-      quantity: item.quantityKg,
-      selected_weight: "1kg",
+      quantity: item.quantity,
+      selected_weight: item.selectedWeight,
       subtotal: item.lineTotal
     }));
 
@@ -631,21 +670,50 @@ export async function addOrder(order: Order): Promise<Order> {
 }
 
 export async function addNotification(notification: Omit<AppNotification, "id" | "createdAt" | "read">): Promise<AppNotification> {
-  // Notifications are kept in local storage per user instructions
-  const store = await readLocalStore();
   const entry: AppNotification = {
     ...notification,
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     read: false
   };
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { error } = await supabase.from("notifications").insert({
+        id: entry.id,
+        title: entry.title,
+        message: entry.message,
+        type: entry.type,
+        created_at: entry.createdAt,
+        read: entry.read
+      });
+      if (!error) return entry;
+      console.warn("Supabase notifications insert failed, falling back to local storage:", error.message);
+    } catch (err) {
+      console.warn("Supabase notifications insert error, falling back to local storage:", err);
+    }
+  }
+
+  const store = await readLocalStore();
   store.notifications.unshift(entry);
   await writeStore(store);
   return entry;
 }
 
 export async function markNotificationsRead(ids: string[]) {
-  // Notifications are kept in local storage per user instructions
+  if (isSupabaseConfigured()) {
+    try {
+      const { error } = await supabase
+        .from("notifications")
+        .update({ read: true })
+        .in("id", ids);
+      if (!error) return;
+      console.warn("Supabase markNotificationsRead failed, falling back to local storage:", error.message);
+    } catch (err) {
+      console.warn("Supabase markNotificationsRead error, falling back to local storage:", err);
+    }
+  }
+
   const store = await readLocalStore();
   const idSet = new Set(ids);
   store.notifications.forEach((notification) => {
@@ -670,8 +738,11 @@ export async function addProduct(product: Product): Promise<Product> {
       image: product.imageUrl,
       category: product.category,
       stock: product.stockKg ?? 100.0,
-      price_1kg: product.pricePerKg,
-      featured: Boolean(product.featured)
+      price_250g: product.price250g,
+      price_500g: product.price500g,
+      price_1kg: product.price1kg,
+      featured: Boolean(product.featured),
+      rating: product.rating ?? 5.0
     });
     if (error) throw error;
     return product;
@@ -699,8 +770,12 @@ export async function updateProduct(productId: string, updates: Partial<Product>
     if (updates.imageUrl) dbUpdates.image = updates.imageUrl;
     if (updates.category) dbUpdates.category = updates.category;
     if (updates.stockKg !== undefined) dbUpdates.stock = updates.stockKg;
+    if (updates.price250g !== undefined) dbUpdates.price_250g = updates.price250g;
+    if (updates.price500g !== undefined) dbUpdates.price_500g = updates.price500g;
+    if (updates.price1kg !== undefined) dbUpdates.price_1kg = updates.price1kg;
     if (updates.pricePerKg !== undefined) dbUpdates.price_1kg = updates.pricePerKg;
     if (updates.featured !== undefined) dbUpdates.featured = updates.featured;
+    if (updates.rating !== undefined) dbUpdates.rating = updates.rating;
 
     const { error } = await supabase
       .from("PRODUCTS")

@@ -14,13 +14,13 @@ const emptyAddress: Address = {
 };
 
 const cashOnDeliveryFee = 9;
-const merchantUpiId = process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID ?? "shubhachandra12pro@okicici";
+const merchantUpiId = process.env.NEXT_PUBLIC_PISTABAJAR_UPI_ID || process.env.NEXT_PUBLIC_PISTABAJAAR_UPI_ID || "shubhachandra12pro@okicici";
 
 function buildUpiUrls(app: UpiApp, amount: number, orderId: string) {
-  const transactionNote = `Pista Bajaar order ${orderId.slice(0, 8)}`;
+  const transactionNote = `Pista Bajar order ${orderId.slice(0, 8)}`;
   const params = new URLSearchParams({
     pa: merchantUpiId,
-    pn: "Pista Bajaar",
+    pn: "Pista Bajar",
     am: String(amount),
     cu: "INR",
     tn: transactionNote,
@@ -98,10 +98,10 @@ export default function CartPage() {
   const [isDirectQrPayment, setIsDirectQrPayment] = useState(false);
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem("pistabajaar_phone") ?? "";
-    const savedName = localStorage.getItem("pistabajaar_name") ?? "";
-    const savedCart = localStorage.getItem("pistabajaar_cart");
-    const savedCartPacks = localStorage.getItem("pistabajaar_cart_packs");
+    const savedPhone = localStorage.getItem("pistabajar_phone") ?? "";
+    const savedName = localStorage.getItem("pistabajar_name") ?? "";
+    const savedCart = localStorage.getItem("pistabajar_cart");
+    const savedCartPacks = localStorage.getItem("pistabajar_cart_packs");
     if (savedPhone) {
       setPhone(savedPhone);
       setCustomerName(savedName);
@@ -123,11 +123,11 @@ export default function CartPage() {
       setProducts(productData.products ?? []);
       const activeOffers = (offerData.offers ?? []) as Offer[];
       setOffers(activeOffers);
-      const claimedOfferId = localStorage.getItem("pistabajaar_claimed_offer");
+      const claimedOfferId = localStorage.getItem("pistabajar_claimed_offer");
       const usedOfferIds = new Set((usageData.usedOfferIds ?? []) as string[]);
       setTotalSavings(Number(savingsData.totalSavings ?? 0));
       if (claimedOfferId && usedOfferIds.has(claimedOfferId)) {
-        localStorage.removeItem("pistabajaar_claimed_offer");
+        localStorage.removeItem("pistabajar_claimed_offer");
         setToast("That coupon was already used, so it was removed from this cart.");
         return;
       }
@@ -144,8 +144,8 @@ export default function CartPage() {
               next[product.id] = Math.min(product.stockKg ?? Number.POSITIVE_INFINITY, quantityKg);
               nextPacks[product.id] = inferPackSize(quantityKg);
             });
-            localStorage.setItem("pistabajaar_cart", JSON.stringify(next));
-            localStorage.setItem("pistabajaar_cart_packs", JSON.stringify(nextPacks));
+            localStorage.setItem("pistabajar_cart", JSON.stringify(next));
+            localStorage.setItem("pistabajar_cart_packs", JSON.stringify(nextPacks));
             setCartPacks(nextPacks);
             return next;
           });
@@ -155,11 +155,11 @@ export default function CartPage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("pistabajaar_cart", JSON.stringify(cart));
+    localStorage.setItem("pistabajar_cart", JSON.stringify(cart));
   }, [cart]);
 
   useEffect(() => {
-    localStorage.setItem("pistabajaar_cart_packs", JSON.stringify(cartPacks));
+    localStorage.setItem("pistabajar_cart_packs", JSON.stringify(cartPacks));
   }, [cartPacks]);
 
   useEffect(() => {
@@ -331,8 +331,8 @@ export default function CartPage() {
     setGiftNote("");
     setGiftWrap(false);
     setUpiScreenshot("");
-    localStorage.removeItem("pistabajaar_claimed_offer");
-    localStorage.removeItem("pistabajaar_cart_packs");
+    localStorage.removeItem("pistabajar_claimed_offer");
+    localStorage.removeItem("pistabajar_cart_packs");
     setTotalSavings((current) => current + (discountAmount || 0));
     setCheckoutState("success");
     setAdminAlert(data.adminAlert);
@@ -571,7 +571,7 @@ export default function CartPage() {
               <span style={{ fontSize: '0.75rem', fontWeight: '900', color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Direct QR Scan & Pay</span>
               <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '2px solid var(--gold)', boxShadow: 'var(--shadow-gold)' }}>
                 <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${merchantUpiId}&pn=Pista%20Bajaar&am=${total}&cu=INR&tn=Order%20Payment`)}`} 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=${merchantUpiId}&pn=Pista%20Bajar&am=${total}&cu=INR&tn=Order%20Payment`)}`} 
                   alt="Payment QR Code" 
                   style={{ display: 'block', width: '160px', height: '160px' }} 
                 />
@@ -719,9 +719,9 @@ export default function CartPage() {
       <header className="topbar">
         <a className="brand" href="/">
           <span className="brand-mark" style={{ background: 'linear-gradient(135deg, #dfb15b, #b88d3d)', borderRadius: '8px', color: '#1c130f', fontWeight: 'bold', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '2px' }}>
-            <img src="/pistabajaar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            <img src="/pistabajar-logo.png" alt="P" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </span>
-          <span>Pista Bajaar</span>
+          <span>Pista Bajar</span>
         </a>
         <a className="button ghost" href="/">
           Shop
@@ -1005,7 +1005,7 @@ export default function CartPage() {
 
           <div className="modal success" onClick={(event) => event.stopPropagation()} style={{ border: '2px solid var(--gold)', boxShadow: 'var(--shadow-gold)', textAlign: 'center', padding: '30px' }}>
             <span style={{ fontSize: '3rem', display: 'block', marginBottom: '16px' }}>🎉</span>
-            <h2 id="success-title" style={{ color: 'var(--accent)', fontFamily: 'Outfit, sans-serif' }}>Pista Bajaar Confirmed!</h2>
+            <h2 id="success-title" style={{ color: 'var(--accent)', fontFamily: 'Outfit, sans-serif' }}>Pista Bajar Confirmed!</h2>
             <p className="muted" style={{ fontSize: '0.95rem' }}>Your premium dry fruits order has been placed with royal care.</p>
             <div style={{ background: 'var(--paper-strong)', padding: '12px', borderRadius: '8px', border: '1px solid var(--line)', margin: '16px 0' }}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--foreground)', fontWeight: 'bold' }}>{adminAlert}</p>
