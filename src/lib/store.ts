@@ -7,6 +7,7 @@ import type {
   Order, 
   OrderStatus, 
   Product, 
+  ProductCategory,
   SavedAddress, 
   StoreData, 
   User,
