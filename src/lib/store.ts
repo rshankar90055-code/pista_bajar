@@ -171,7 +171,7 @@ export async function readStore(): Promise<StoreData> {
       price500g: Number(p.price_500g || 0),
       price1kg: Number(p.price_1kg || 0),
       pricePerKg: Number(p.price_1kg || 0),
-      category: p.category || "almonds",
+      category: (p.category || "almonds").toLowerCase() as ProductCategory,
       description: p.description || "",
       stockKg: Number(p.stock ?? 0),
       soldOut: Number(p.stock ?? 0) <= 0,
